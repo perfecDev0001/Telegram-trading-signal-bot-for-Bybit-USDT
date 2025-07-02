@@ -1,0 +1,163 @@
+# Bybit Scanner Bot - Git Ignore File
+
+# ===========================================
+# SENSITIVE ENVIRONMENT FILES
+# ===========================================
+.env
+*.env
+!.env.example
+
+# ===========================================
+# PYTHON SPECIFIC
+# ===========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.virtualenv
+
+# ===========================================
+# DATABASE FILES
+# ===========================================
+*.db
+*.sqlite
+*.sqlite3
+bot_data.db
+database.db
+
+# ===========================================
+# LOG FILES
+# ===========================================
+*.log
+logs/
+bot.log
+bot_output.log
+error.log
+debug.log
+
+# ===========================================
+# RUNTIME DATA FILES
+# ===========================================
+settings.json
+signals_log.json
+subscribers.json
+user_data.json
+bot_state.json
+
+# ===========================================
+# IDE SPECIFIC FILES
+# ===========================================
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ===========================================
+# AI ASSISTANT FILES
+# ===========================================
+.zencoder/
+.claude/
+.chatgpt/
+
+# ===========================================
+# TEST AND DEBUG FILES (SELECTIVE)
+# ===========================================
+# Keep essential verification script
+!setup_verification.py
+
+# Remove debug and test files (not critical for deployment)
+debug_*.py
+test_bot_token.py
+test_all_features.py
+
+# But keep these patterns if they appear elsewhere
+*_test.py
+*_debug.py
+
+# ===========================================
+# DOCUMENTATION (OPTIONAL EXTRAS)
+# ===========================================
+# Keep essential docs, ignore extra reports
+PROJECT_OPTIMIZATION_SUMMARY.md
+FINAL_CLIENT_REQUIREMENTS_REPORT.md
+RENDER_DEPLOYMENT_GUIDE.md
+
+# ===========================================
+# TEMPORARY FILES
+# ===========================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ===========================================
+# OS SPECIFIC FILES
+# ===========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ===========================================
+# BACKUP FILES
+# ===========================================
+*.bak
+*.backup
+*.old
+
+# ===========================================
+# MISC
+# ===========================================
+*.pid
+*.seed
+*.cover
+.coverage
+.nyc_output
+node_modules/
