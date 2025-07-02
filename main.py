@@ -13,9 +13,11 @@ import time
 import psutil
 import os
 from datetime import datetime
+from aiohttp import web
+import threading
 
 from config import Config
-from telegram_bot import telegram_bot
+from telegram_bot import TelegramBot
 from enhanced_scanner import enhanced_scanner
 from settings_manager import settings_manager
 
@@ -24,7 +26,9 @@ class BotManager:
         self.running = True
         self.bot_task = None
         self.scanner_task = None
+        self.web_task = None
         self.startup_time = time.time()
+        self.telegram_bot = TelegramBot()
     
     def cleanup_processes(self):
         """Kill conflicting processes - optimized for speed"""
@@ -69,12 +73,12 @@ class BotManager:
             print("🤖 Starting Telegram Bot...")
             
             # Start the bot using the new method
-            if await telegram_bot.start_bot():
+            if await self.telegram_bot.start_bot():
                 print(f"🔑 Admin ID: {Config.ADMIN_ID}")
                 print(f"📱 Bot Token: {Config.BOT_TOKEN[:10]}***")
                 
                 # Keep the bot running
-                while self.running and telegram_bot.is_running():
+                while self.running and self.telegram_bot.is_running():
                     await asyncio.sleep(1)
             else:
                 print("❌ Failed to start Telegram bot")
@@ -87,7 +91,86 @@ class BotManager:
             traceback.print_exc()
         finally:
             # Use the new stop method
-            await telegram_bot.stop_bot()
+            await self.telegram_bot.stop_bot()
+    
+    async def start_health_server(self):
+        """Start HTTP health check server for Render deployment"""
+        async def health_check(request):
+            """Health check endpoint"""
+            uptime = time.time() - self.startup_time
+            
+            # Get system status
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory = psutil.virtual_memory()
+            
+            status = {
+                "status": "healthy",
+                "uptime_seconds": int(uptime),
+                "uptime_formatted": f"{int(uptime//3600)}h {int((uptime%3600)//60)}m {int(uptime%60)}s",
+                "bot_running": self.telegram_bot.is_running() if hasattr(self.telegram_bot, 'is_running') else True,
+                "scanner_status": "running" if self.running else "stopped",
+                "system": {
+                    "cpu_percent": cpu_percent,
+                    "memory_percent": memory.percent,
+                    "memory_available_mb": memory.available // 1024 // 1024
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return web.json_response(status)
+        
+        async def root_handler(request):
+            """Root endpoint"""
+            return web.Response(text="🤖 Bybit Scanner Bot is running!\n\nHealthcheck: /health\nStatus: /status")
+        
+        async def status_handler(request):
+            """Status endpoint with more details"""
+            try:
+                from database import db
+                scanner_status = db.get_scanner_status()
+                
+                status = {
+                    "bot_info": {
+                        "name": "Bybit Scanner Bot",
+                        "version": "1.0.0",
+                        "admin_id": Config.ADMIN_ID
+                    },
+                    "scanner": scanner_status,
+                    "uptime": time.time() - self.startup_time,
+                    "timestamp": datetime.now().isoformat()
+                }
+                return web.json_response(status)
+            except Exception as e:
+                return web.json_response({"error": str(e)}, status=500)
+        
+        # Create web application
+        app = web.Application()
+        app.router.add_get('/', root_handler)
+        app.router.add_get('/health', health_check)
+        app.router.add_get('/status', status_handler)
+        
+        # Get port from environment (Render provides PORT env var)
+        port = int(os.environ.get('PORT', 8080))
+        
+        print(f"🌐 Starting health check server on port {port}")
+        
+        try:
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', port)
+            await site.start()
+            
+            print(f"✅ Health check server running on http://0.0.0.0:{port}")
+            print(f"   - Health check: http://0.0.0.0:{port}/health")
+            print(f"   - Status: http://0.0.0.0:{port}/status")
+            
+            # Keep the server running
+            while self.running:
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            print(f"❌ Failed to start health server: {e}")
+            raise
     
     async def start_scanner(self):
         """Start the Enhanced Bybit Scanner"""
@@ -109,7 +192,7 @@ class BotManager:
             try:
                 # Run the enhanced scanner with timeout protection
                 await asyncio.wait_for(
-                    enhanced_scanner.run_enhanced_scanner(telegram_bot.application.bot),
+                    enhanced_scanner.run_enhanced_scanner(self.telegram_bot.application.bot),
                     timeout=3600  # 1 hour timeout (effectively no timeout for normal operation)
                 )
             except asyncio.TimeoutError:
@@ -153,13 +236,16 @@ class BotManager:
         signal.signal(signal.SIGTERM, signal_handler)
         
         try:
-            # Start both bot and scanner concurrently with proper task management
+            # Start bot, scanner, and health server concurrently
             self.bot_task = asyncio.create_task(self.start_bot())
             self.scanner_task = asyncio.create_task(self.start_scanner())
+            self.web_task = asyncio.create_task(self.start_health_server())
             
-            # Wait for either task to complete or fail
+            print("🚀 All services started. Waiting for completion...")
+            
+            # Wait for any task to complete or fail
             done, pending = await asyncio.wait(
-                [self.bot_task, self.scanner_task],
+                [self.bot_task, self.scanner_task, self.web_task],
                 return_when=asyncio.FIRST_EXCEPTION
             )
             

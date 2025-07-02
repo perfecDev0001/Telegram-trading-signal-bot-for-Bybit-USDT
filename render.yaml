@@ -5,5 +5,22 @@ services:
     plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
-    # Environment variables should be set in Render dashboard
-    # for security reasons - not hardcoded here
+    envVars:
+      - key: BOT_TOKEN
+        value: 7341495471:AAF6lxa_awyOvjMIv3oSVRS5COadq2TEI_o
+      - key: ADMIN_ID
+        value: 7974254350
+      - key: BYBIT_API_KEY
+        value: 1Lf8RrbAZwhGz42UNY
+      - key: BYBIT_SECRET
+        value: YOUR_ACTUAL_BYBIT_SECRET_HERE
+      - key: SCANNER_INTERVAL
+        value: 60
+      - key: PUMP_THRESHOLD
+        value: 5.0
+      - key: DUMP_THRESHOLD
+        value: -5.0
+      - key: BREAKOUT_THRESHOLD
+        value: 3.0
+      - key: DATABASE_PATH
+        value: ./bot_data.db

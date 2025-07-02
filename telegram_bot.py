@@ -41,25 +41,34 @@ class TelegramBot:
             print("🤖 Initializing bot...")
             await self.application.initialize()
             
-            print("🚀 Starting bot...")
+            # Quick bot test
+            print("🔍 Testing bot connection...")
+            try:
+                bot_info = await asyncio.wait_for(self.application.bot.get_me(), timeout=10)
+                print(f"✅ Bot connection successful: @{bot_info.username}")
+            except Exception as e:
+                print(f"❌ Bot connection test failed: {e}")
+                return False
+            
+            print("🚀 Starting bot application...")
             await self.application.start()
             
             print("📡 Starting polling...")
             await self.application.updater.start_polling(
                 drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"],
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30,
-                pool_timeout=30
+                allowed_updates=["message", "callback_query"]
             )
             
             self._running = True
-            print("✅ Bot is running!")
+            print("✅ Bot is running and polling for messages!")
+            print(f"🔑 Admin ID: {Config.ADMIN_ID}")
+            print("📱 Send /start to test the bot")
             return True
             
         except Exception as e:
             print(f"❌ Failed to start bot: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     async def stop_bot(self):
@@ -91,6 +100,8 @@ class TelegramBot:
         """Check if bot is running"""
         return self._running
     
+
+    
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle errors that occur during bot operation"""
         # Log the error
@@ -101,64 +112,77 @@ class TelegramBot:
             logger.debug("Task was cancelled (normal during shutdown)")
             return
         
-        # For other errors, we can try to inform the user
+        # Try to inform user about error if possible
         if update and hasattr(update, 'effective_chat') and update.effective_chat:
             try:
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text="⚠️ An error occurred while processing your request. Please try again."
+                    text="⚠️ An error occurred. Please try again or use /start to restart."
                 )
             except Exception:
-                # If we can't send the error message, just log it
-                logger.error("Could not send error message to user")
+                pass  # Ignore if we can't send error message
     
     def setup_handlers(self):
         """Setup all command and callback handlers"""
-        
-        # Add error handler
-        self.application.add_error_handler(self.error_handler)
-        
-        # Command handlers
-        self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        
-        # Conversation handler for user input (must be added before general callback handler)
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(self.start_conversation, pattern="^(settings_add_pair|settings_remove_pair|settings_tp_multipliers|threshold_.*)$"),
-                CallbackQueryHandler(self.handle_callback, pattern="^(subscribers_add|subscribers_remove)$")
-            ],
-            states={
-                WAITING_ADD_SUBSCRIBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_subscriber_callback)],
-                WAITING_REMOVE_SUBSCRIBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_subscriber_callback)],
-                WAITING_THRESHOLD_CHANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.change_threshold_callback)],
-                WAITING_PAIR_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_pair_callback)],
-                WAITING_PAIR_REMOVE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_pair_callback)],
-                WAITING_TP_MULTIPLIERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.tp_multipliers_callback)],
-            },
-            fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel_conversation, pattern="^(back_to_main|manage_subscribers)$")
-            ],
-            per_chat=True,
-            per_user=True,
-            name="admin_conversation"
-        )
-        self.application.add_handler(conv_handler)
-        
-        # General callback query handlers (excluding conversation entry points)
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback, pattern="^(?!(subscribers_add|subscribers_remove)$).*$"))
-        
-        # General message handler
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        try:
+            print("🔧 Setting up bot handlers...")
+            
+            # Add error handler first
+            self.application.add_error_handler(self.error_handler)
+            print("   ✅ Error handler added")
+            
+            # Command handlers - these should be prioritized
+            self.application.add_handler(CommandHandler("start", self.start))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            print("   ✅ Command handlers added (/start, /help)")
+            
+            # Conversation handler for user input (must be added before general callback handler)
+            conv_handler = ConversationHandler(
+                entry_points=[
+                    CallbackQueryHandler(self.start_conversation, pattern="^(settings_add_pair|settings_remove_pair|settings_tp_multipliers|threshold_.*)$"),
+                    CallbackQueryHandler(self.handle_callback, pattern="^(subscribers_add|subscribers_remove)$")
+                ],
+                states={
+                    WAITING_ADD_SUBSCRIBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_subscriber_callback)],
+                    WAITING_REMOVE_SUBSCRIBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_subscriber_callback)],
+                    WAITING_THRESHOLD_CHANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.change_threshold_callback)],
+                    WAITING_PAIR_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_pair_callback)],
+                    WAITING_PAIR_REMOVE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_pair_callback)],
+                    WAITING_TP_MULTIPLIERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.tp_multipliers_callback)],
+                },
+                fallbacks=[
+                    CommandHandler("cancel", self.cancel),
+                    CallbackQueryHandler(self.cancel_conversation, pattern="^(back_to_main|manage_subscribers)$")
+                ],
+                per_chat=True,
+                per_user=True,
+                name="admin_conversation"
+            )
+            self.application.add_handler(conv_handler)
+            print("   ✅ Conversation handler added")
+            
+            # General callback query handlers (excluding conversation entry points)
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback, pattern="^(?!(subscribers_add|subscribers_remove)$).*$"))
+            print("   ✅ Callback query handlers added")
+            
+            # General message handler (lowest priority)
+            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+            print("   ✅ General message handler added")
+            
+            print("✅ All handlers set up successfully!")
+            
+        except Exception as e:
+            print(f"❌ Error setting up handlers: {e}")
+            import traceback
+            traceback.print_exc()
     
     def is_admin(self, user_id: int) -> bool:
         """Check if user is admin"""
         return user_id == Config.ADMIN_ID or is_admin(user_id)
     
-    def get_panel_image_path(self) -> str:
-        """Get the path to the panel image"""
-        return os.path.join(os.path.dirname(__file__), "image", "Bybit_4.jpg")
+
+    
+
     
     async def start_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start conversation based on callback data"""
@@ -182,10 +206,28 @@ class TelegramBot:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline keyboards"""
         query = update.callback_query
-        await query.answer()
+        
+        # Try to answer the callback query with timeout handling
+        try:
+            await query.answer()
+        except Exception as e:
+            # If answering fails due to timeout, try to continue processing
+            logger.warning(f"Failed to answer callback query: {e}")
+            # Don't return here, continue processing the callback
         
         if not self.is_admin(query.from_user.id):
-            await query.edit_message_text("🚫 Access Denied")
+            try:
+                await query.edit_message_text("🚫 Access Denied")
+            except Exception as e:
+                logger.error(f"Failed to send access denied message: {e}")
+                # Try sending a new message if editing fails
+                try:
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text="🚫 Access Denied"
+                    )
+                except Exception:
+                    pass
             return
         
         data = query.data
@@ -496,24 +538,55 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
+        user_id = user.id
+        admin_id = Config.ADMIN_ID
+        
+        # Enhanced logging for debugging
+        logger.info(f"Start command received from user {user_id} (admin: {admin_id})")
+        print(f"📱 START command from user: {user_id}")
+        print(f"🔑 Configured admin ID: {admin_id}")
+        print(f"✅ Is admin check: {user_id == admin_id}")
+        
+        # First try to send a simple response to confirm bot is working
+        try:
+            await update.message.reply_text(
+                f"🤖 Bot received your /start command!\n"
+                f"Your ID: {user_id}\n"
+                f"Processing..."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send initial acknowledgment: {e}")
+            print(f"❌ Failed to send initial response: {e}")
+            return
         
         if not self.is_admin(user.id):
-            await update.message.reply_text(
-                "🚫 <b>Access Denied</b>\n\n"
-                "You are not authorized to use this bot.\n"
-                "Only the admin can access this bot's features.",
-                parse_mode=ParseMode.HTML
-            )
+            try:
+                await update.message.reply_text(
+                    f"🚫 <b>Access Denied</b>\n\n"
+                    f"Your ID: <code>{user_id}</code>\n"
+                    f"Admin ID: <code>{admin_id}</code>\n\n"
+                    f"You are not authorized to use this bot.\n"
+                    f"Only the admin can access this bot's features.",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Failed to send access denied message: {e}")
             return
         
         # Show admin panel
-        keyboard = self.get_admin_keyboard()
-        
-        welcome_message = f"""
+        try:
+            keyboard = self.get_admin_keyboard()
+            
+            # Add network status info if slow network detected
+            network_info = ""
+            if hasattr(self, 'slow_network_mode') and self.slow_network_mode:
+                network_info = "\n🌐 <i>Slow network detected - please be patient with button responses</i>\n"
+            
+            welcome_message = f"""
 🤖 <b>Bybit Scanner Bot - Admin Panel</b>
 
 Welcome, <b>{user.first_name}</b>! 👋
-
+{network_info}
 🎛️ <b>Control Panel:</b>
 • Monitor trading signals in real-time
 • Configure scanner settings and thresholds
@@ -521,13 +594,32 @@ Welcome, <b>{user.first_name}</b>! 👋
 • Control scanner operation
 
 Choose an option from the menu below:
-        """.strip()
-        
-        await update.message.reply_text(
-            welcome_message,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
+            """.strip()
+            
+            # Try to send the main message
+            await update.message.reply_text(
+                welcome_message,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            print("✅ Admin panel sent successfully!")
+            
+        except Exception as e:
+            logger.error(f"Error sending admin panel: {e}")
+            print(f"❌ Error sending admin panel: {e}")
+            
+            # Send a fallback simple message
+            try:
+                await update.message.reply_text(
+                    f"🤖 <b>Welcome Admin!</b>\n\n"
+                    f"Bot is working but there was an issue loading the full panel.\n"
+                    f"Your ID: <code>{user_id}</code>\n"
+                    f"Try /start again or check network connection.",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e2:
+                logger.error(f"Failed to send fallback message: {e2}")
+                print(f"❌ Failed to send fallback message: {e2}")
     
     def get_admin_keyboard(self) -> InlineKeyboardMarkup:
         """Get admin panel keyboard with new layout"""

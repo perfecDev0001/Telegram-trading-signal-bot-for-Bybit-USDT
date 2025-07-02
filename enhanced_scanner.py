@@ -16,13 +16,6 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import statistics
 import math
-# Import config for API configuration
-try:
-    from config import Config
-except ImportError:
-    class Config:
-        BYBIT_SECRET = None
-
 from database import db
 from config import Config
 
