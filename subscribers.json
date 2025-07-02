@@ -1,0 +1,21 @@
+{
+    "subscribers": [
+        {
+            "user_id": 7974254350,
+            "username": "dream_code_star",
+            "first_name": "Admin",
+            "added_date": "2025-07-01T02:12:03.570593",
+            "is_active": true,
+            "is_admin": true
+        },
+        {
+            "user_id": 7452976451,
+            "username": "space_ion99",
+            "first_name": "User",
+            "added_date": "2025-07-01T02:12:03.570596",
+            "is_active": true,
+            "is_admin": false
+        }
+    ],
+    "last_updated": "2025-07-01T02:12:03.570600"
+}

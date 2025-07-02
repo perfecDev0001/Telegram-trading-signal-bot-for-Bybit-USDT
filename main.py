@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""
+Bybit Scanner Bot - Main Entry Point
+
+This script runs both the Telegram bot and the Bybit scanner concurrently.
+The bot provides admin interface while the scanner monitors markets.
+"""
+
+import asyncio
+import signal
+import sys
+import time
+import psutil
+import os
+from datetime import datetime
+
+from config import Config
+from telegram_bot import telegram_bot
+from enhanced_scanner import enhanced_scanner
+from settings_manager import settings_manager
+
+class BotManager:
+    def __init__(self):
+        self.running = True
+        self.bot_task = None
+        self.scanner_task = None
+        self.startup_time = time.time()
+    
+    def cleanup_processes(self):
+        """Kill conflicting processes - optimized for speed"""
+        current_pid = os.getpid()
+        killed = 0
+        
+        print("🧹 Cleaning up conflicting processes...")
+        
+        # Get all python processes at once (faster than iterating)
+        python_processes = []
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                if (proc.info['pid'] != current_pid and 
+                    proc.info['name'] == 'python.exe'):
+                    python_processes.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        
+        # Check only python processes for bot keywords
+        for proc in python_processes:
+            try:
+                if (proc.info['cmdline'] and
+                    any(keyword in ' '.join(proc.info['cmdline']).lower() 
+                        for keyword in ['main.py', 'working_bot', 'bot'])):
+                    
+                    print(f"  Killing PID {proc.info['pid']}")
+                    proc.kill()
+                    killed += 1
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        
+        if killed > 0:
+            print(f"✅ Cleaned up {killed} processes")
+            time.sleep(0.3)  # Minimal delay for process cleanup
+        else:
+            print("✅ No conflicts found")
+    
+    async def start_bot(self):
+        """Start the Telegram bot"""
+        try:
+            print("🤖 Starting Telegram Bot...")
+            
+            # Start the bot using the new method
+            if await telegram_bot.start_bot():
+                print(f"🔑 Admin ID: {Config.ADMIN_ID}")
+                print(f"📱 Bot Token: {Config.BOT_TOKEN[:10]}***")
+                
+                # Keep the bot running
+                while self.running and telegram_bot.is_running():
+                    await asyncio.sleep(1)
+            else:
+                print("❌ Failed to start Telegram bot")
+                
+        except asyncio.CancelledError:
+            print("🛑 Bot task was cancelled")
+        except Exception as e:
+            print(f"❌ Bot error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # Use the new stop method
+            await telegram_bot.stop_bot()
+    
+    async def start_scanner(self):
+        """Start the Enhanced Bybit Scanner"""
+        try:
+            print("🔍 Starting Enhanced Bybit Scanner...")
+            print(f"⏱️ Scan interval: 60 seconds (1-minute candles)")
+            print(f"📊 Advanced filtering with confluence scoring")
+            print(f"🎯 Using Bybit API Key: {Config.BYBIT_API_KEY or 'Public Access'}")
+            
+            # Initialize settings sync
+            settings_manager.sync_to_database()
+            
+            # Ensure scanner is set to running state on startup
+            from database import db
+            db.update_scanner_status(is_running=True)
+            print("✅ Scanner status set to RUNNING")
+            
+            # Run the enhanced scanner with bot instance for sending signals
+            try:
+                # Run the enhanced scanner with timeout protection
+                await asyncio.wait_for(
+                    enhanced_scanner.run_enhanced_scanner(telegram_bot.application.bot),
+                    timeout=3600  # 1 hour timeout (effectively no timeout for normal operation)
+                )
+            except asyncio.TimeoutError:
+                print("⏱️ Scanner operation timed out")
+            except Exception as e:
+                print(f"❌ Scanner operation error: {e}")
+            
+        except Exception as e:
+            print(f"❌ Enhanced Scanner error: {e}")
+    
+    async def run(self):
+        """Run both bot and scanner concurrently"""
+        print("=" * 60)
+        print("🚀 ENHANCED BYBIT SCANNER BOT STARTING")
+        print("=" * 60)
+        print(f"⏰ Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"🎯 Admin: @dream_code_star ({Config.ADMIN_ID})")  
+        print(f"👤 User: @space_ion99 (7452976451)")
+        print(f"📢 Channel: -1002674839519")
+        print(f"🔑 API Key: 1Lf8RrbAZwhGz42UNY")
+        
+        # Get current settings
+        system_status = settings_manager.get_system_status()
+        print(f"📊 Monitoring: {system_status['monitored_pairs']} pairs")
+        print(f"🚀 Pump threshold: {system_status['thresholds']['pump']}%")
+        print(f"📉 Dump threshold: {system_status['thresholds']['dump']}%")
+        print(f"💥 Breakout threshold: {system_status['thresholds']['breakout']}%")
+        print(f"📈 Volume threshold: {system_status['thresholds']['volume']}%")
+        print(f"🎯 TP Multipliers: {system_status['tp_multipliers']}")
+        print("=" * 60)
+        
+        # Cleanup first
+        self.cleanup_processes()
+        
+        # Set up signal handlers for graceful shutdown
+        def signal_handler(signum, frame):
+            print(f"\n⚠️ Received signal {signum}, shutting down...")
+            self.running = False
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        try:
+            # Start both bot and scanner concurrently with proper task management
+            self.bot_task = asyncio.create_task(self.start_bot())
+            self.scanner_task = asyncio.create_task(self.start_scanner())
+            
+            # Wait for either task to complete or fail
+            done, pending = await asyncio.wait(
+                [self.bot_task, self.scanner_task],
+                return_when=asyncio.FIRST_EXCEPTION
+            )
+            
+            # Cancel any pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                    
+        except KeyboardInterrupt:
+            print("\n🛑 Keyboard interrupt received")
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+        finally:
+            print("🛑 Shutting down...")
+            self.running = False
+            
+            # Ensure all tasks are cancelled
+            if hasattr(self, 'bot_task') and self.bot_task and not self.bot_task.done():
+                self.bot_task.cancel()
+            if hasattr(self, 'scanner_task') and self.scanner_task and not self.scanner_task.done():
+                self.scanner_task.cancel()
+
+def check_configuration():
+    """Check if the bot is properly configured"""
+    issues = []
+    
+    if not Config.BOT_TOKEN or Config.BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        issues.append("❌ BOT_TOKEN not configured in .env file")
+    
+    if Config.ADMIN_ID == 0:
+        issues.append("❌ ADMIN_ID not configured in .env file")
+    
+    if issues:
+        print("🚨 CONFIGURATION ISSUES FOUND:")
+        for issue in issues:
+            print(f"  {issue}")
+        print("\n📝 Please update your .env file with correct values:")
+        print("  1. Set BOT_TOKEN to your actual bot token")
+        print("  2. Set ADMIN_ID to your Telegram user ID")
+        print("\n💡 To get your Telegram user ID:")
+        print("  - Message @userinfobot on Telegram")
+        print("  - Or use @RawDataBot")
+        return False
+    
+    return True
+
+def main():
+    """Main function"""
+    print("🔧 Checking configuration...")
+    
+    if not check_configuration():
+        print("\n❌ Cannot start bot due to configuration issues")
+        sys.exit(1)
+    
+    print("✅ Configuration OK")
+    
+    try:
+        # Create and run the bot manager
+        manager = BotManager()
+        asyncio.run(manager.run())
+    except KeyboardInterrupt:
+        print("\n👋 Bot stopped by user")
+    except Exception as e:
+        print(f"\n💥 Fatal error: {e}")
+        sys.exit(1)
+    finally:
+        print("👋 Goodbye!")
+
+if __name__ == "__main__":
+    main()
