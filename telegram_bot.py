@@ -846,7 +846,9 @@ Use /start to access the main control panel.
     
     async def show_help_menu(self, query):
         """Show help menu with project overview and admin panel usage"""
-        help_text = """
+        from config import Config
+        
+        help_text = f"""
 🚀 <b>Enhanced Bybit Scanner Bot - Help</b>
 
 <b>📋 Project Overview:</b>
@@ -873,9 +875,9 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
 <b>⏸ Pause Scanner</b> - Temporarily stop/start scanning
 
 <b>🎯 Signal Recipients:</b>
-• Admin: @dream_code_star (ID: 7974254350)
-• User: @space_ion99 (ID: 7452976451)
-• Private Channel: -1002674839519
+• Admin ID: {Config.ADMIN_ID}
+• Subscriber ID: {Config.SUBSCRIBER_ID}
+• Channel ID: {Config.CHANNEL_ID}
 
 <b>💡 Quick Tips:</b>
 • Only signals with ≥70% strength are sent
@@ -1707,28 +1709,17 @@ Message:
             # Send file to user
             with open(temp_file, 'rb') as f:
                 # Create a new message with the document instead of editing the current one
-                message = await query.message.reply_document(
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
                 )
-                
-                # Add buttons to the new message with the document
-                keyboard = [
-                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")],
-                    [InlineKeyboardButton("🔙 Back to Signal Logs", callback_data="signals_log")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await message.edit_reply_markup(reply_markup=reply_markup)
             
             # Clean up temp file
             os.unlink(temp_file)
             
-            # Update the original message to show completion without buttons
-            await query.edit_message_text(
-                f"📄 **Export Complete!**\n\n✅ {len(signals)} signals exported as text file"
-            )
+            # Show the signals log screen again
+            await self.show_signals_log(query)
             
         except Exception as e:
             await query.edit_message_text(f"❌ Export failed: {e}")
@@ -1779,28 +1770,17 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
             # Send file to user
             with open(temp_file, 'rb') as f:
                 # Create a new message with the document instead of editing the current one
-                message = await query.message.reply_document(
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
                 )
-                
-                # Add buttons to the new message with the document
-                keyboard = [
-                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")],
-                    [InlineKeyboardButton("🔙 Back to Subscribers", callback_data="manage_subscribers")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await message.edit_reply_markup(reply_markup=reply_markup)
             
             # Clean up temp file
             os.unlink(temp_file)
             
-            # Update the original message to show completion without buttons
-            await query.edit_message_text(
-                f"📄 **Export Complete!**\n\n✅ {len(active_subscribers)} subscribers exported as text file"
-            )
+            # Show the manage subscribers screen again
+            await self.show_manage_subscribers(query)
             
         except Exception as e:
             await query.edit_message_text(f"❌ Export failed: {e}")

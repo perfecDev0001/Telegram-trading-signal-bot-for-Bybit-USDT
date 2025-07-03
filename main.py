@@ -262,10 +262,9 @@ class BotManager:
         print("🚀 ENHANCED BYBIT SCANNER BOT STARTING")
         print("=" * 60)
         print(f"⏰ Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"🎯 Admin: @dream_code_star ({Config.ADMIN_ID})")  
-        print(f"👤 User: @space_ion99 (7452976451)")
-        print(f"📢 Channel: -1002674839519")
-        print(f"🔑 API Key: 1Lf8RrbAZwhGz42UNY")
+        print(f"🎯 Admin ID: {Config.ADMIN_ID}")
+        # Don't print sensitive information directly
+        print(f"🔑 API Key: {Config.BYBIT_API_KEY[:5]}..." if Config.BYBIT_API_KEY else "No API Key configured")
         
         # Get current settings
         system_status = settings_manager.get_system_status()

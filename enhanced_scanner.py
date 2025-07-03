@@ -845,11 +845,12 @@ class EnhancedBybitScanner:
             from database import db
             active_subscribers = db.get_active_subscribers()
             
-            # Add hardcoded recipients (for backward compatibility)
+            # Add default recipients (from config)
+            from config import Config
             hardcoded_recipients = [
-                7974254350,  # Admin: @dream_code_star
-                7452976451,  # User: @space_ion99
-                -1002674839519  # Private channel
+                Config.ADMIN_ID,  # Admin from environment variable
+                Config.SUBSCRIBER_ID,  # Default subscriber
+                Config.CHANNEL_ID  # Default channel
             ]
             
             # Combine all recipients (remove duplicates)
@@ -1498,10 +1499,11 @@ class EnhancedBybitScanner:
     async def send_enhanced_signal(self, bot_instance, signal: SignalData):
         """Send enhanced signal to all subscribers"""
         try:
-            # Admin ID and special subscribers
-            admin_id = 7974254350  # @dream_code_star
-            special_user = 7452976451  # @space_ion99  
-            channel_id = -1002674839519  # Private channel
+            # Get IDs from config
+            from config import Config
+            admin_id = Config.ADMIN_ID
+            special_user = Config.SUBSCRIBER_ID
+            channel_id = Config.CHANNEL_ID
             
             # Get all subscribers
             subscribers = db.get_active_subscribers()

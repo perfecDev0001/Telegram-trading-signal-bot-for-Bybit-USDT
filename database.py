@@ -137,11 +137,17 @@ class Database:
                 50.0  # Default volume threshold
             ))
             
-            # Add default subscriber (space_ion99)
+            # Add default admin subscriber
             cursor.execute('''
                 INSERT OR IGNORE INTO subscribers (user_id, username, first_name, is_active)
                 VALUES (?, ?, ?, ?)
-            ''', (7452976451, 'space_ion99', 'General User', 1))
+            ''', (Config.ADMIN_ID, 'admin', 'Admin User', 1))
+            
+            # Add default user subscriber
+            cursor.execute('''
+                INSERT OR IGNORE INTO subscribers (user_id, username, first_name, is_active)
+                VALUES (?, ?, ?, ?)
+            ''', (Config.SUBSCRIBER_ID, 'subscriber', 'Subscriber User', 1))
             
             conn.commit()
     

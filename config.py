@@ -7,7 +7,9 @@ load_dotenv()
 class Config:
     # Telegram Bot Configuration
     BOT_TOKEN = os.getenv('BOT_TOKEN')
-    ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))  # Replace with your actual Telegram user ID
+    ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))  # Admin Telegram user ID
+    SUBSCRIBER_ID = int(os.getenv('SUBSCRIBER_ID', '7452976451'))  # Default subscriber ID
+    CHANNEL_ID = int(os.getenv('CHANNEL_ID', '-1002674839519'))  # Default channel ID
     
     # Bybit API Configuration
     BYBIT_API_KEY = os.getenv('BYBIT_API_KEY', '')

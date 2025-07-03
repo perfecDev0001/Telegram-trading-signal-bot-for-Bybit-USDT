@@ -59,14 +59,15 @@ class SettingsManager:
                 "scanner": asdict(ScannerSettings()),
                 "advanced_filters": asdict(AdvancedFilters()),
                 "api": {
-                    "bybit_api_key": "1Lf8RrbAZwhGz42UNY",
+                    "bybit_api_key": Config.BYBIT_API_KEY or "",
+                    "bybit_secret": Config.BYBIT_SECRET or "",
                     "rate_limit": 0.1,
                     "timeout": 10
                 },
                 "telegram": {
-                    "admin_id": 7974254350,
-                    "special_user": 7452976451,
-                    "channel_id": -1002674839519
+                    "admin_id": Config.ADMIN_ID,
+                    "special_user": Config.SUBSCRIBER_ID,
+                    "channel_id": Config.CHANNEL_ID
                 },
                 "last_updated": datetime.now().isoformat()
             }
@@ -77,7 +78,7 @@ class SettingsManager:
             default_subscribers = {
                 "subscribers": [
                     {
-                        "user_id": 7974254350,
+                        "user_id": Config.ADMIN_ID,
                         "username": "dream_code_star",
                         "first_name": "Admin",
                         "added_date": datetime.now().isoformat(),
@@ -85,9 +86,9 @@ class SettingsManager:
                         "is_admin": True
                     },
                     {
-                        "user_id": 7452976451,
-                        "username": "space_ion99",
-                        "first_name": "User",
+                        "user_id": Config.SUBSCRIBER_ID,
+                        "username": "subscriber",
+                        "first_name": "Subscriber",
                         "added_date": datetime.now().isoformat(),
                         "is_active": True,
                         "is_admin": False
@@ -271,7 +272,7 @@ class SettingsManager:
                 "last_name": last_name,
                 "added_date": datetime.now().isoformat(),
                 "is_active": True,
-                "is_admin": user_id == 7974254350
+                "is_admin": user_id == Config.ADMIN_ID
             }
             
             data['subscribers'].append(new_subscriber)
@@ -459,7 +460,8 @@ settings_manager = SettingsManager()
 # Access control function
 def is_admin(user_id: int) -> bool:
     """Check if user is admin"""
-    return user_id == 7974254350
+    from config import Config
+    return user_id == Config.ADMIN_ID
 
 if __name__ == "__main__":
     # Test settings manager
