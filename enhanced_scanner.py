@@ -8,6 +8,7 @@ import asyncio
 import json
 import time
 import requests
+import aiohttp
 import hashlib
 import hmac
 import random
@@ -109,24 +110,34 @@ class EnhancedBybitScanner:
             await asyncio.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    async def _make_api_request(self, url, params, headers, max_retries=3, timeout=20):
-        """Make API request with retry logic"""
+    async def _make_api_request(self, url, params, headers, max_retries=3, timeout=10):
+        """Make API request with retry logic using aiohttp"""
         retries = 0
         while retries < max_retries:
             try:
-                response = requests.get(url, params=params, headers=headers, timeout=timeout)
-                if response.status_code == 200:
-                    return response
-                elif response.status_code == 429:  # Rate limit exceeded
-                    wait_time = 2 ** retries  # Exponential backoff
-                    print(f"⚠️ Rate limit exceeded, waiting {wait_time}s before retry...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    print(f"⚠️ API request failed with status code {response.status_code}, retrying...")
-            except requests.exceptions.Timeout:
+                timeout_config = aiohttp.ClientTimeout(total=timeout)
+                async with aiohttp.ClientSession(timeout=timeout_config) as session:
+                    async with session.get(url, params=params, headers=headers) as response:
+                        if response.status == 200:
+                            response_data = await response.json()
+                            # Create a mock response object for compatibility
+                            class MockResponse:
+                                def __init__(self, status, data):
+                                    self.status_code = status
+                                    self._data = data
+                                def json(self):
+                                    return self._data
+                            return MockResponse(200, response_data)
+                        elif response.status == 429:  # Rate limit exceeded
+                            wait_time = 2 ** retries  # Exponential backoff
+                            print(f"⚠️ Rate limit exceeded, waiting {wait_time}s before retry...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            print(f"⚠️ API request failed with status code {response.status}, retrying...")
+            except asyncio.TimeoutError:
                 print(f"⚠️ API request timed out, retrying ({retries+1}/{max_retries})...")
-            except requests.exceptions.ConnectionError:
-                print(f"⚠️ Connection error, retrying ({retries+1}/{max_retries})...")
+            except aiohttp.ClientError as e:
+                print(f"⚠️ Connection error: {e}, retrying ({retries+1}/{max_retries})...")
             except Exception as e:
                 print(f"⚠️ Unexpected error during API request: {e}, retrying ({retries+1}/{max_retries})...")
             
@@ -801,16 +812,23 @@ class EnhancedBybitScanner:
         try:
             message = self.format_signal_message(signal)
             
-            # Recipients from requirements
-            recipients = [
+            # Get active subscribers from database
+            from database import db
+            active_subscribers = db.get_active_subscribers()
+            
+            # Add hardcoded recipients (for backward compatibility)
+            hardcoded_recipients = [
                 7974254350,  # Admin: @dream_code_star
                 7452976451,  # User: @space_ion99
                 -1002674839519  # Private channel
             ]
             
+            # Combine all recipients (remove duplicates)
+            all_recipients = list(set(active_subscribers + hardcoded_recipients))
+            
             sent_count = 0
             
-            for recipient in recipients:
+            for recipient in all_recipients:
                 try:
                     await bot.send_message(
                         chat_id=recipient,

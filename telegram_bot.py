@@ -207,6 +207,18 @@ class TelegramBot:
         """Check if user is admin"""
         return user_id == Config.ADMIN_ID or is_admin(user_id)
     
+    def is_subscriber(self, user_id: int) -> tuple:
+        """Check if user is a subscriber and return subscriber info"""
+        try:
+            subscribers = db.get_subscribers_info()
+            for subscriber in subscribers:
+                if subscriber['user_id'] == user_id and subscriber['is_active']:
+                    return True, subscriber
+            return False, None
+        except Exception as e:
+            logger.error(f"Error checking subscriber status: {e}")
+            return False, None
+    
 
     
 
@@ -224,9 +236,12 @@ class TelegramBot:
         
         # Handle settings callbacks that need conversation
         if data.startswith("settings_"):
-            return await self.handle_settings_callback(query, data)
+            if data == "settings_tp_multipliers":
+                return await self.handle_tp_multipliers_callback(query, context)
+            else:
+                return await self.handle_settings_callback(query, data)
         elif data.startswith("threshold_"):
-            return await self.handle_threshold_callback(query, data)
+            return await self.handle_threshold_callback(query, data, context)
         
         return ConversationHandler.END
     
@@ -589,7 +604,7 @@ class TelegramBot:
         return ConversationHandler.END
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
+        """Handle /start command with different messages for admin, subscribers, and unauthorized users"""
         user = update.effective_user
         user_id = user.id
         admin_id = Config.ADMIN_ID
@@ -600,22 +615,44 @@ class TelegramBot:
         print(f"🔑 Configured admin ID: {admin_id}")
         print(f"✅ Is admin check: {user_id == admin_id}")
         
-        # Remove the processing message that was mentioned as issue
-        # The processing message was causing user confusion, so we'll go directly to the main panel
-        
-        if not self.is_admin(user.id):
-            try:
-                await update.message.reply_text(
-                    f"🚫 <b>Access Denied</b>\n\n"
-                    f"Your ID: <code>{user_id}</code>\n"
-                    f"Admin ID: <code>{admin_id}</code>\n\n"
-                    f"You are not authorized to use this bot.\n"
-                    f"Only the admin can access this bot's features.",
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Failed to send access denied message: {e}")
-            return
+        # Check user type and respond accordingly
+        if self.is_admin(user.id):
+            # Admin user - show admin panel
+            pass  # Continue to admin panel code below
+        else:
+            # Check if user is a subscriber
+            is_sub, subscriber_info = self.is_subscriber(user_id)
+            
+            if is_sub:
+                # ✅ Subscriber Message (Authorized User)
+                subscriber_name = subscriber_info.get('first_name', 'Subscriber')
+                if subscriber_info.get('username'):
+                    subscriber_name = f"@{subscriber_info['username']}"
+                elif subscriber_info.get('first_name'):
+                    subscriber_name = subscriber_info['first_name']
+                    if subscriber_info.get('last_name'):
+                        subscriber_name += f" {subscriber_info['last_name']}"
+                
+                try:
+                    await update.message.reply_text(
+                        f"👋 Welcome, our subscriber <b>{subscriber_name}</b>.\n\n"
+                        f"You can receive signal information from this bot.",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send subscriber welcome message: {e}")
+                return
+            else:
+                # ❌ General User Message (Unauthorized User)
+                try:
+                    await update.message.reply_text(
+                        f"❌ You do not have access to this bot.\n\n"
+                        f"You need to get access from an administrator to receive information from this bot.",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send unauthorized message: {e}")
+                return
         
         # Show admin panel
         try:
@@ -701,10 +738,81 @@ Choose an option from the menu below:
         return InlineKeyboardMarkup(keyboard)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
-        if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("🚫 Access Denied")
-            return
+        """Handle /help command with different messages for different user types"""
+        user = update.effective_user
+        user_id = user.id
+        
+        if self.is_admin(user_id):
+            # Admin help message
+            pass  # Continue to existing admin help below
+        else:
+            # Check if user is a subscriber
+            is_sub, subscriber_info = self.is_subscriber(user_id)
+            
+            if is_sub:
+                # Subscriber help message
+                subscriber_name = subscriber_info.get('first_name', 'Subscriber')
+                if subscriber_info.get('username'):
+                    subscriber_name = f"@{subscriber_info['username']}"
+                elif subscriber_info.get('first_name'):
+                    subscriber_name = subscriber_info['first_name']
+                    if subscriber_info.get('last_name'):
+                        subscriber_name += f" {subscriber_info['last_name']}"
+                
+                help_text = f"""
+🤖 <b>Bybit Scanner Bot - Subscriber Help</b>
+
+Hello <b>{subscriber_name}</b>! 👋
+
+<b>📋 About This Bot:</b>
+You are subscribed to receive trading signals from our Bybit scanner bot.
+
+<b>🔔 What You'll Receive:</b>
+• High-confidence trading signals (≥70% strength)
+• Real-time market alerts for USDT perpetual contracts
+• Entry prices and take-profit levels
+• Signal strength and analysis details
+
+<b>📊 Signal Format:</b>
+Each signal includes:
+• Symbol and direction (Long/Short)
+• Entry price
+• Strength percentage
+• Take-profit levels (TP1-TP4)
+
+<b>⚠️ Important Notes:</b>
+• Signals are for informational purposes only
+• Always do your own research before trading
+• Past performance doesn't guarantee future results
+
+<b>📞 Support:</b>
+Contact the administrator for any questions or issues.
+                """.strip()
+                
+                await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+                return
+            else:
+                # Unauthorized user help message
+                help_text = """
+🤖 <b>Bybit Scanner Bot</b>
+
+❌ <b>Access Required</b>
+
+This is a private trading signal bot. You need to be authorized by an administrator to receive signals.
+
+<b>📞 To Get Access:</b>
+Contact the bot administrator to request subscription access.
+
+<b>🔒 This bot provides:</b>
+• Professional trading signals
+• Real-time market analysis
+• High-confidence trade alerts
+
+<i>Access is restricted to authorized subscribers only.</i>
+                """.strip()
+                
+                await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+                return
         
         help_text = """
 🤖 <b>Bybit Scanner Bot - Help</b>
@@ -781,14 +889,34 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
         )
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle general text messages"""
-        if not self.is_admin(update.effective_user.id):
-            return
+        """Handle general text messages with different responses for different user types"""
+        user = update.effective_user
+        user_id = user.id
         
-        await update.message.reply_text(
-            "ℹ️ Use /start to access the admin panel or /help for assistance.",
-            parse_mode=ParseMode.HTML
-        )
+        if self.is_admin(user_id):
+            # Admin message
+            await update.message.reply_text(
+                "ℹ️ Use /start to access the admin panel or /help for assistance.",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Check if user is a subscriber
+            is_sub, subscriber_info = self.is_subscriber(user_id)
+            
+            if is_sub:
+                # Subscriber message
+                await update.message.reply_text(
+                    "👋 Hello! You are subscribed to receive trading signals.\n\n"
+                    "Use /help for more information about the signals you'll receive.",
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                # Unauthorized user message
+                await update.message.reply_text(
+                    "❌ You do not have access to this bot.\n\n"
+                    "Contact the administrator to request access.",
+                    parse_mode=ParseMode.HTML
+                )
     
     async def back_to_main(self, query):
         """Return to main admin panel"""
@@ -976,7 +1104,8 @@ Showing the {signals_count} most recent signals:
             # Create keyboard with control buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("🔄 Refresh Log", callback_data="signals_log")
+                    InlineKeyboardButton("🔄 Refresh Log", callback_data="signals_log"),
+                    InlineKeyboardButton("📤 Export Log", callback_data="export_log")
                 ],
                 [
                     InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
@@ -1050,13 +1179,27 @@ Showing the {signals_count} most recent signals:
             # Create keyboard with settings buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("🎯 Adjust Thresholds", callback_data="settings_thresholds")
+                    InlineKeyboardButton("📈 Pump Threshold", callback_data="threshold_pump"),
+                    InlineKeyboardButton("📉 Dump Thresholds", callback_data="threshold_dump")
                 ],
                 [
-                    InlineKeyboardButton("🔄 Toggle Features", callback_data="settings_features")
+                    InlineKeyboardButton("💥 Breakout Threshold", callback_data="threshold_breakout"),
+                    InlineKeyboardButton("📊 Volume Threshold", callback_data="threshold_volume")
                 ],
                 [
-                    InlineKeyboardButton("📋 Manage Pairs", callback_data="settings_pairs")
+                    InlineKeyboardButton("🎯 TP Multipliers", callback_data="settings_tp_multipliers")
+                ],
+                [
+                    InlineKeyboardButton(f"🐋 Whale Tracking: {'✅' if whale_tracking else '❌'}", callback_data="filter_whale_tracking"),
+                    InlineKeyboardButton(f"🕵️ Spoofing: {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing_detection")
+                ],
+                [
+                    InlineKeyboardButton(f"📏 Spread Filter: {'✅' if spread_filter else '❌'}", callback_data="filter_spread_filter"),
+                    InlineKeyboardButton(f"📈 Trend Match: {'✅' if trend_match else '❌'}", callback_data="filter_trend_match")
+                ],
+                [
+                    InlineKeyboardButton("📋 Add Pair", callback_data="settings_add_pair"),
+                    InlineKeyboardButton("🗑️ Remove Pair", callback_data="settings_remove_pair")
                 ],
                 [
                     InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
@@ -1346,46 +1489,99 @@ Choose an option from the menu below:
         except Exception as e:
             await query.edit_message_text(f"❌ Settings error: {e}")
     
-    async def handle_threshold_callback(self, query, data):
+    async def handle_threshold_callback(self, query, data, context):
         """Handle threshold-related callbacks"""
         try:
             if data == "threshold_pump":
-                context = {"threshold_type": "pump"}
+                # Get current value from database
+                scanner_status = db.get_scanner_status()
+                current_value = scanner_status.get('pump_threshold', 5.0)
+                
+                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
                 await query.edit_message_text(
-                    "🚀 **Set Pump Threshold**\n\n"
-                    "Enter new pump threshold percentage (e.g., `pump 7.5`):\n\n"
-                    "Current value: 5.0%\n"
-                    "Valid range: 0.1% to 50.0%",
-                    parse_mode='Markdown'
+                    f"🚀 **Set Pump Threshold**\n\n"
+                    f"Enter new pump threshold percentage (e.g., `5.5`):\n\n"
+                    f"Current value: {current_value}%\n"
+                    f"Valid range: 0.1% to 50.0%",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                # Store threshold type in context
+                context.user_data['threshold_type'] = 'pump'
+                return WAITING_THRESHOLD_CHANGE
             elif data == "threshold_dump":
+                # Get current value from database
+                scanner_status = db.get_scanner_status()
+                current_value = scanner_status.get('dump_threshold', -5.0)
+                
+                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
                 await query.edit_message_text(
-                    "📉 **Set Dump Threshold**\n\n"
-                    "Enter new dump threshold percentage (e.g., `dump -6.0`):\n\n"
-                    "Current value: -5.0%\n"
-                    "Valid range: -50.0% to -0.1%",
-                    parse_mode='Markdown'
+                    f"📉 **Set Dump Threshold**\n\n"
+                    f"Enter new dump threshold percentage (e.g., `-6.0`):\n\n"
+                    f"Current value: {current_value}%\n"
+                    f"Valid range: -50.0% to -0.1%",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                context.user_data['threshold_type'] = 'dump'
+                return WAITING_THRESHOLD_CHANGE
             elif data == "threshold_breakout":
+                # Get current value from database
+                scanner_status = db.get_scanner_status()
+                current_value = scanner_status.get('breakout_threshold', 3.0)
+                
+                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
                 await query.edit_message_text(
-                    "💥 **Set Breakout Threshold**\n\n"
-                    "Enter new breakout threshold percentage (e.g., `breakout 4.0`):\n\n"
-                    "Current value: 3.0%\n"
-                    "Valid range: 0.1% to 20.0%",
-                    parse_mode='Markdown'
+                    f"💥 **Set Breakout Threshold**\n\n"
+                    f"Enter new breakout threshold percentage (e.g., `4.0`):\n\n"
+                    f"Current value: {current_value}%\n"
+                    f"Valid range: 0.1% to 20.0%",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                context.user_data['threshold_type'] = 'breakout'
+                return WAITING_THRESHOLD_CHANGE
             elif data == "threshold_volume":
+                # Get current value from database
+                scanner_status = db.get_scanner_status()
+                current_value = scanner_status.get('volume_threshold', 50.0)
+                
+                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
                 await query.edit_message_text(
-                    "📊 **Set Volume Threshold**\n\n"
-                    "Enter new volume threshold percentage (e.g., `volume 50`):\n\n"
-                    "Current value: 50.0%\n"
-                    "Valid range: 1.0% to 200.0%",
-                    parse_mode='Markdown'
+                    f"📊 **Set Volume Threshold**\n\n"
+                    f"Enter new volume threshold percentage (e.g., `50`):\n\n"
+                    f"Current value: {current_value}%\n"
+                    f"Valid range: 1.0% to 200.0%",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                context.user_data['threshold_type'] = 'volume'
+                return WAITING_THRESHOLD_CHANGE
             else:
                 await self.show_threshold_settings(query)
         except Exception as e:
             await query.edit_message_text(f"❌ Threshold error: {e}")
+    
+    async def handle_tp_multipliers_callback(self, query, context):
+        """Handle TP multipliers callback"""
+        try:
+            # Get current TP multipliers from database
+            scanner_status = db.get_scanner_status()
+            tp_multipliers_str = scanner_status.get('tp_multipliers', '[1.5, 3.0, 5.0, 7.5]')
+            
+            keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+            await query.edit_message_text(
+                f"🎯 **Set TP Multipliers**\n\n"
+                f"Enter new TP multipliers as comma-separated values (e.g., `1.5, 3.0, 5.0, 7.5`):\n\n"
+                f"Current values: {tp_multipliers_str}\n"
+                f"Valid range: 0.5 to 20.0 for each multiplier",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'tp_multipliers'
+            return WAITING_TP_MULTIPLIERS
+        except Exception as e:
+            await query.edit_message_text(f"❌ TP multipliers error: {e}")
     
     async def handle_filter_toggle(self, query, data):
         """Handle advanced filter toggle"""
@@ -1398,6 +1594,10 @@ Choose an option from the menu below:
             
             # Define filter mappings
             filter_mappings = {
+                'whale_tracking': 'whale_tracking',
+                'spoofing_detection': 'spoofing_detection', 
+                'spread_filter': 'spread_filter',
+                'trend_match': 'trend_match',
                 'whale': 'whale_tracking',
                 'spoofing': 'spoofing_detection', 
                 'spread': 'spread_filter',
@@ -1421,10 +1621,12 @@ Choose an option from the menu below:
             status_emoji = "✅" if new_state else "❌"
             status_text = "ENABLED" if new_state else "DISABLED"
             
+            keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
             await query.edit_message_text(
                 f"🔄 **Filter Updated!**\n\n"
                 f"🎯 **{filter_name.title()} Filter:** {status_emoji} {status_text}",
-                parse_mode='Markdown'
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
         except Exception as e:
@@ -1477,8 +1679,7 @@ Message:
             
             # Send file to user
             with open(temp_file, 'rb') as f:
-                await query.bot.send_document(
-                    chat_id=query.message.chat.id,
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"📊 **Signals Log Export**\n\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
@@ -1544,8 +1745,7 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
             
             # Send file to user
             with open(temp_file, 'rb') as f:
-                await query.bot.send_document(
-                    chat_id=query.message.chat.id,
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"👥 **Subscriber List Export**\n\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
@@ -1749,6 +1949,17 @@ Click below to toggle filters:"""
             scanner_status = db.get_scanner_status()
             monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
             
+            # Test API connectivity first
+            api_test_passed = False
+            try:
+                test_result = await asyncio.wait_for(
+                    enhanced_scanner.test_api_connectivity(),
+                    timeout=5.0
+                )
+                api_test_passed = test_result
+            except Exception as e:
+                print(f"API connectivity test failed: {e}")
+            
             # Get live data for top 5 pairs with timeout and concurrent requests
             live_data = []
             async def get_pair_data(symbol):
@@ -1756,7 +1967,7 @@ Click below to toggle filters:"""
                     # Add timeout to prevent hanging
                     market_data = await asyncio.wait_for(
                         enhanced_scanner.get_market_data(symbol),
-                        timeout=5.0  # 5 second timeout per symbol
+                        timeout=8.0  # 8 second timeout per symbol
                     )
                     if market_data:
                         return {
@@ -1765,6 +1976,16 @@ Click below to toggle filters:"""
                             'change_24h': market_data.change_24h,
                             'volume_24h': market_data.volume_24h
                         }
+                except asyncio.TimeoutError:
+                    print(f"Timeout getting data for {symbol}")
+                    return {
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True,
+                        'error_msg': 'Request timeout'
+                    }
                 except Exception as e:
                     print(f"Error getting data for {symbol}: {e}")
                     # Return basic data if API fails
@@ -1773,15 +1994,37 @@ Click below to toggle filters:"""
                         'price': 0.0,
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
-                        'error': True
+                        'error': True,
+                        'error_msg': f'API Error: {str(e)[:50]}'
                     }
                 return None
             
             # Execute requests concurrently with overall timeout
             try:
                 tasks = [get_pair_data(symbol) for symbol in monitored_pairs[:5]]
-                results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=10.0)
-                live_data = [result for result in results if result is not None]
+                results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=15.0)
+                live_data = []
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        live_data.append({
+                            'symbol': monitored_pairs[i],
+                            'price': 0.0,
+                            'change_24h': 0.0,
+                            'volume_24h': 0.0,
+                            'error': True,
+                            'error_msg': str(result)
+                        })
+                    elif result is not None:
+                        live_data.append(result)
+                    else:
+                        live_data.append({
+                            'symbol': monitored_pairs[i],
+                            'price': 0.0,
+                            'change_24h': 0.0,
+                            'volume_24h': 0.0,
+                            'error': True,
+                            'error_msg': 'No data returned'
+                        })
             except asyncio.TimeoutError:
                 # If timeout, show cached/basic data
                 live_data = []
@@ -1791,7 +2034,8 @@ Click below to toggle filters:"""
                         'price': 0.0,
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
-                        'error': True
+                        'error': True,
+                        'error_msg': 'Overall timeout'
                     })
             
             # Format live monitor message
@@ -1800,9 +2044,13 @@ Click below to toggle filters:"""
             status_text = "RUNNING" if scanner_running else "PAUSED"
             
             from datetime import datetime as dt
+            api_status_emoji = "🟢" if api_test_passed else "🔴"
+            api_status_text = "Connected" if api_test_passed else "Issues"
+            
             message = f"""📊 **Live Market Monitor**
             
 🤖 **Scanner Status:** {status_emoji} {status_text}
+🌐 **API Status:** {api_status_emoji} {api_status_text}
 📅 **Updated:** {dt.now().strftime('%H:%M:%S UTC')}
 
 💹 **Top 5 Monitored Pairs:**
@@ -1810,9 +2058,10 @@ Click below to toggle filters:"""
             
             for data in live_data:
                 if data.get('error'):
+                    error_msg = data.get('error_msg', 'API timeout')
                     message += f"""
 **{data['symbol']}**
-⚠️ Data unavailable (API timeout)
+⚠️ {error_msg}
 """
                 else:
                     change_emoji = "🟢" if data['change_24h'] >= 0 else "🔴"
@@ -1946,21 +2195,22 @@ Click below to toggle filters:"""
         try:
             text = update.message.text.strip()
             
-            # Parse input format: "pump 7.5" or "dump -6.0" or "breakout 4.0" or "volume 50"
-            parts = text.lower().split()
-            if len(parts) != 2:
-                await update.message.reply_text(
-                    "❌ **Invalid format!**\n\n"
-                    "Please use format:\n"
-                    "• `pump 7.5` - Set pump threshold to 7.5%\n"
-                    "• `dump -6.0` - Set dump threshold to -6.0%\n"
-                    "• `breakout 4.0` - Set breakout threshold to 4.0%\n"
-                    "• `volume 50` - Set volume threshold to 50%",
-                    parse_mode='Markdown'
-                )
-                return ConversationHandler.END
-            
-            threshold_type, value_str = parts
+            # Get threshold type from context (set when button was clicked)
+            threshold_type = context.user_data.get('threshold_type')
+            if not threshold_type:
+                # Try to parse old format for backward compatibility
+                parts = text.lower().split()
+                if len(parts) == 2:
+                    threshold_type, value_str = parts
+                else:
+                    await update.message.reply_text(
+                        "❌ **Invalid format!**\n\n"
+                        "Please enter just the number value (e.g., `7.5` or `-6.0`)",
+                        parse_mode='Markdown'
+                    )
+                    return ConversationHandler.END
+            else:
+                value_str = text
             
             try:
                 value = float(value_str)
