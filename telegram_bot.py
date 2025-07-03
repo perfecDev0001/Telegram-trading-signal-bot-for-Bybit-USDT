@@ -391,7 +391,7 @@ class TelegramBot:
         """Show subscriber management menu"""
         subscribers = db.get_subscribers_info()
         
-        message = f"👥 <b>Subscribers Management</b>\n\n"
+        message = f"👥 <b>SUBSCRIBERS MANAGEMENT</b>\n\n"
         message += f"📊 <b>Total Subscribers:</b> {len(subscribers)}\n"
         message += f"✅ <b>Active Subscribers:</b> {len([s for s in subscribers if s['is_active']])}\n\n"
         
@@ -411,14 +411,14 @@ class TelegramBot:
         
         keyboard = [
             [
-                InlineKeyboardButton("➕ Add Subscriber", callback_data="subscribers_add"),
-                InlineKeyboardButton("➖ Remove Subscriber", callback_data="subscribers_remove")
+                InlineKeyboardButton("➕ ADD SUBSCRIBERS", callback_data="subscribers_add"),
+                InlineKeyboardButton("➖ REMOVE SUBSCRIBERS", callback_data="subscribers_remove")
             ],
             [
-                InlineKeyboardButton("👁️ View All", callback_data="subscribers_view_all"),
-                InlineKeyboardButton("📄 Export List", callback_data="subscribers_export")
+                InlineKeyboardButton("👁️ VIEW ALL", callback_data="subscribers_view_all"),
+                InlineKeyboardButton("📄 EXPORT LIST", callback_data="subscribers_export")
             ],
-            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_main")]
+            [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]
         ]
         
         await query.edit_message_text(
@@ -461,12 +461,12 @@ class TelegramBot:
             
             keyboard = [
                 [
-                    InlineKeyboardButton("➕ Add Subscriber", callback_data="subscribers_add"),
-                    InlineKeyboardButton("➖ Remove Subscriber", callback_data="subscribers_remove")
+                    InlineKeyboardButton("➕ ADD SUBSCRIBER", callback_data="subscribers_add"),
+                    InlineKeyboardButton("➖ REMOVE SUBSCRIBER", callback_data="subscribers_remove")
                 ],
                 [
-                    InlineKeyboardButton("📄 Export List", callback_data="subscribers_export"),
-                    InlineKeyboardButton("🔙 Back", callback_data="manage_subscribers")
+                    InlineKeyboardButton("📄 EXPORT LIST", callback_data="subscribers_export"),
+                    InlineKeyboardButton("🔙 BACK", callback_data="manage_subscribers")
                 ]
             ]
             
@@ -668,11 +668,12 @@ class TelegramBot:
                 network_info = "\n🌐 <i>Slow network detected - please be patient with button responses</i>\n"
             
             welcome_message = f"""
-🤖 <b>Bybit Scanner Bot - Admin Panel</b>
+🤖 <b>BYBIT SCANNER BOT - ADMIN PANEL</b>
 
 Welcome, <b>{user.first_name}</b>! 👋
 {network_info}
-🎛️ <b>Control Panel:</b>
+🎛️ <b>CONTROL PANEL:</b>
+
 • Monitor trading signals in real-time
 • Configure scanner settings and thresholds
 • Manage subscriber notifications  
@@ -714,29 +715,29 @@ Choose an option from the menu below:
         keyboard = [
             # Row 1: Scanner Status | Signals Log
             [
-                InlineKeyboardButton("📊 Scanner Status", callback_data="scanner_status"),
-                InlineKeyboardButton("📈 Signals Log", callback_data="signals_log")
+                InlineKeyboardButton("📊 SCANNER STATUS", callback_data="scanner_status"),
+                InlineKeyboardButton("📈 SIGNALS LOG", callback_data="signals_log")
             ],
             # Row 2: Live Monitor | System Status
             [
-                InlineKeyboardButton("📊 Live Monitor", callback_data="live_monitor"),
-                InlineKeyboardButton("🖥 System Status", callback_data="advanced_system_status")
+                InlineKeyboardButton("📊 LIVE MONITOR", callback_data="live_monitor"),
+                InlineKeyboardButton("🖥 SYSTEM STATUS", callback_data="advanced_system_status")
             ],
             # Row 3: Settings | Force Scan
             [
-                InlineKeyboardButton("⚙️ Settings", callback_data="settings"),
-                InlineKeyboardButton("⚡ Force Scan", callback_data="force_scan")
+                InlineKeyboardButton("⚙️ SETTINGS", callback_data="settings"),
+                InlineKeyboardButton("⚡ FORCE SCAN", callback_data="force_scan")
             ],
             # Row 4: Logout | Pause Scanner
             [
-                InlineKeyboardButton("🚪 Logout", callback_data="logout"),
-                InlineKeyboardButton("⏸ Pause Scanner" if is_running else "▶️ Resume Scanner", 
+                InlineKeyboardButton("🚪 LOGOUT", callback_data="logout"),
+                InlineKeyboardButton("⏸ PAUSE SCANNER" if is_running else "▶️ RESUME SCANNER",
                                    callback_data="pause_scanner" if is_running else "resume_scanner")
             ],
             # Row 5: Manage Subscribers | Help
             [
-                InlineKeyboardButton("👥 Manage Subscribers", callback_data="manage_subscribers"),
-                InlineKeyboardButton("❓ Help", callback_data="help_menu")
+                InlineKeyboardButton("👥 MANAGE SUBSCRIBERS", callback_data="manage_subscribers"),
+                InlineKeyboardButton("❓ HELP", callback_data="help_menu")
             ]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -764,7 +765,7 @@ Choose an option from the menu below:
                         subscriber_name += f" {subscriber_info['last_name']}"
                 
                 help_text = f"""
-🤖 <b>Bybit Scanner Bot - Subscriber Help</b>
+🤖 <b>BYBIT SCANNER ROT - SUBSCRIBER HELP</b>
 
 Hello <b>{subscriber_name}</b>! 👋
 
@@ -849,7 +850,7 @@ Use /start to access the main control panel.
         from config import Config
         
         help_text = f"""
-🚀 <b>Enhanced Bybit Scanner Bot - Help</b>
+🚀 <b>ENHANCED BYBIT SCANNER BOT - HELP</b>
 
 <b>📋 Project Overview:</b>
 A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetuals with advanced market analysis, multi-layered filtering, and real-time alerts.
@@ -862,24 +863,22 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
 • ☁️ Cloud Optimized for 24/7 deployment
 • 🎯 High Accuracy (≥70% confidence signals only)
 
-<b>🎛️ Admin Panel Usage:</b>
+<b>🎛️ ADMIN PANEL USAGE:</b>
 
-<b>📊 Scanner Status</b> - View real-time scanner status and statistics
-<b>📈 Signals Log</b> - Review recent trading signals and export logs
-<b>📊 Live Monitor</b> - Monitor top trading pairs in real-time
-<b>🖥 System Status</b> - Check system health and performance
+<b>📊 SCANNER STATUS</b> - View real-time scanner status and statistics
+<b>📈 SIGNALS LOG</b> - Review recent trading signals and export logs
+<b>📊 LIVE MONITOR</b> - Monitor top trading pairs in real-time
+<b>🖥 SYSTEM STATUS</b> - Check system health and performance
 
-<b>⚙️ Settings</b> - Configure thresholds, filters, and trading pairs
-<b>⚡ Force Scan</b> - Manually trigger market scan
-<b>👥 Manage Subscribers</b> - Add/remove Telegram users
-<b>⏸ Pause Scanner</b> - Temporarily stop/start scanning
+<b>⚙️ SETTINGS</b> - Configure thresholds, filters, and trading pairs
+<b>⚡ FORCE SCAN</b> - Manually trigger market scan
+<b>👥 MANAGE SUBSCRIBERS</b> - Add/remove Telegram users
+<b>⏸ PAUSE SCANNER</b> - Temporarily stop/start scanning
 
-<b>🎯 Signal Recipients:</b>
-• Admin ID: {Config.ADMIN_ID}
-• Subscriber ID: {Config.SUBSCRIBER_ID}
-• Channel ID: {Config.CHANNEL_ID}
+<b>🎯 SIGNAL RECIPIENTS:</b>
+Only the administrator, the administrator’s private channel, and subscribers explicitly authorized by the administrator are permitted to receive trading signals from the bot.
 
-<b>💡 Quick Tips:</b>
+<b>💡 QUICK TIPS:</b>
 • Only signals with ≥70% strength are sent
 • Scanner monitors 1-minute intervals automatically
 • Use Force Scan to test signal detection
@@ -929,9 +928,10 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
         keyboard = self.get_admin_keyboard()
         
         message = """
-🤖 <b>Bybit Scanner Bot - Admin Panel</b>
+🤖 <b>BYBIT SCANNER BOT - ADMIN PANEL</b>
 
-🎛️ <b>Control Panel:</b>
+🎛️ <b>CONTROL PANEL:</b>
+
 • Monitor trading signals in real-time
 • Configure scanner settings and thresholds
 • Manage subscriber notifications  
@@ -992,7 +992,7 @@ Choose an option from the menu below:
             from datetime import datetime as dt
             current_time = dt.now().strftime('%H:%M:%S')
             status_message = f"""
-📊 <b>Scanner Status</b>
+📊 <b>SCANNER STATUS</b>
 
 <b>Current Status:</b> {'🟢 RUNNING' if is_running else '🔴 PAUSED'}
 <b>Last Scan:</b> {last_scan}
@@ -1027,14 +1027,14 @@ Choose an option from the menu below:
             # Create keyboard with control buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("⏸ Pause Scanner" if is_running else "▶️ Resume Scanner", 
+                    InlineKeyboardButton("⏸ PAUSE SCANNER" if is_running else "▶️ RESUME SCANNER",
                                       callback_data="pause_scanner" if is_running else "resume_scanner")
                 ],
                 [
-                    InlineKeyboardButton("🔄 Refresh Status", callback_data="scanner_status")
+                    InlineKeyboardButton("🔄 REFRESH STATUS", callback_data="scanner_status")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1049,7 +1049,7 @@ Choose an option from the menu below:
             await query.edit_message_text(
                 f"❌ Error showing scanner status: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]])
             )
     
@@ -1065,7 +1065,7 @@ Choose an option from the menu below:
             current_time = dt.now().strftime('%H:%M:%S')
             if signals_count == 0:
                 message = f"""
-📈 <b>Signals Log</b>
+📈 <b>SIGNALS LOG</b>
 
 No signals have been generated yet.
 The scanner will generate signals when market conditions meet the criteria.
@@ -1074,7 +1074,7 @@ The scanner will generate signals when market conditions meet the criteria.
 """
             else:
                 message = f"""
-📈 <b>Signals Log</b>
+📈 <b>SIGNALS LOG</b>
 
 Showing the {signals_count} most recent signals:
 <b>Last Updated:</b> {current_time} UTC
@@ -1110,11 +1110,11 @@ Showing the {signals_count} most recent signals:
             # Create keyboard with control buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("🔄 Refresh Log", callback_data="signals_log"),
-                    InlineKeyboardButton("📤 Export Log", callback_data="export_log")
+                    InlineKeyboardButton("🔄 REFRESH LOG", callback_data="signals_log"),
+                    InlineKeyboardButton("📤 EXPORT LOG", callback_data="export_log")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1129,7 +1129,7 @@ Showing the {signals_count} most recent signals:
             await query.edit_message_text(
                 f"❌ Error showing signals log: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]])
             )
     
@@ -1162,7 +1162,7 @@ Showing the {signals_count} most recent signals:
             
             # Build settings message
             settings_message = f"""
-⚙️ <b>Scanner Settings</b>
+⚙️ <b>SCANNER SETTINGS</b>
 
 <b>Signal Thresholds:</b>
 • Pump: {pump_threshold}%
@@ -1185,30 +1185,30 @@ Showing the {signals_count} most recent signals:
             # Create keyboard with settings buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("📈 Pump Threshold", callback_data="threshold_pump"),
-                    InlineKeyboardButton("📉 Dump Thresholds", callback_data="threshold_dump")
+                    InlineKeyboardButton("📈 PUMP THRESHOLD", callback_data="threshold_pump"),
+                    InlineKeyboardButton("📉 DUMP THRESHOLD", callback_data="threshold_dump")
                 ],
                 [
-                    InlineKeyboardButton("💥 Breakout Threshold", callback_data="threshold_breakout"),
-                    InlineKeyboardButton("📊 Volume Threshold", callback_data="threshold_volume")
+                    InlineKeyboardButton("💥 BREAKOUT THRESHOLD", callback_data="threshold_breakout"),
+                    InlineKeyboardButton("📊 VOLUME THRESHOLD", callback_data="threshold_volume")
                 ],
                 [
-                    InlineKeyboardButton("🎯 TP Multipliers", callback_data="settings_tp_multipliers")
+                    InlineKeyboardButton("🎯 TP MULTIPLIERS", callback_data="settings_tp_multipliers")
                 ],
                 [
-                    InlineKeyboardButton(f"🐋 Whale Tracking: {'✅' if whale_tracking else '❌'}", callback_data="filter_whale_tracking"),
-                    InlineKeyboardButton(f"🕵️ Spoofing: {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing_detection")
+                    InlineKeyboardButton(f"🐋 WHALE TRACKING: {'✅' if whale_tracking else '❌'}", callback_data="filter_whale_tracking"),
+                    InlineKeyboardButton(f"🕵️ SPOOFING: {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing_detection")
                 ],
                 [
-                    InlineKeyboardButton(f"📏 Spread Filter: {'✅' if spread_filter else '❌'}", callback_data="filter_spread_filter"),
-                    InlineKeyboardButton(f"📈 Trend Match: {'✅' if trend_match else '❌'}", callback_data="filter_trend_match")
+                    InlineKeyboardButton(f"📏 SPREAD FILTER: {'✅' if spread_filter else '❌'}", callback_data="filter_spread_filter"),
+                    InlineKeyboardButton(f"📈 TREND MATCH: {'✅' if trend_match else '❌'}", callback_data="filter_trend_match")
                 ],
                 [
-                    InlineKeyboardButton("📋 Add Pair", callback_data="settings_add_pair"),
-                    InlineKeyboardButton("🗑️ Remove Pair", callback_data="settings_remove_pair")
+                    InlineKeyboardButton("📋 ADD PAIR", callback_data="settings_add_pair"),
+                    InlineKeyboardButton("🗑️ REMOVE PAIR", callback_data="settings_remove_pair")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1223,7 +1223,7 @@ Showing the {signals_count} most recent signals:
             await query.edit_message_text(
                 f"❌ Error showing settings: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]])
             )
     
@@ -1241,7 +1241,7 @@ Showing the {signals_count} most recent signals:
             
             # Build settings message
             settings_message = f"""
-🎯 <b>Threshold Settings</b>
+🎯 <b>THRESHOLD SETTINGS</b>
 
 Adjust the thresholds for signal generation:
 
@@ -1263,18 +1263,18 @@ Adjust the thresholds for signal generation:
             # Create keyboard with adjustment buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("🚀 Pump Threshold", callback_data="threshold_pump"),
-                    InlineKeyboardButton("📉 Dump Threshold", callback_data="threshold_dump")
+                    InlineKeyboardButton("🚀 PUMP THRESHOLD", callback_data="threshold_pump"),
+                    InlineKeyboardButton("📉 DUMP THRESHOLD", callback_data="threshold_dump")
                 ],
                 [
-                    InlineKeyboardButton("💥 Breakout Threshold", callback_data="threshold_breakout"),
-                    InlineKeyboardButton("📊 Volume Threshold", callback_data="threshold_volume")
+                    InlineKeyboardButton("💥 BREAKOUT THRESHOLD", callback_data="threshold_breakout"),
+                    InlineKeyboardButton("📊 VOLUME THRESHOLD", callback_data="threshold_volume")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1289,7 +1289,7 @@ Adjust the thresholds for signal generation:
             await query.edit_message_text(
                 f"❌ Error showing threshold settings: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ]])
             )
     
@@ -1329,18 +1329,18 @@ Toggle advanced scanner features:
             # Create keyboard with toggle buttons
             keyboard = [
                 [
-                    InlineKeyboardButton(f"🐋 Whale {'✅' if whale_tracking else '❌'}", callback_data="filter_whale"),
-                    InlineKeyboardButton(f"🎭 Spoofing {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing")
+                    InlineKeyboardButton(f"🐋 WHALE {'✅' if whale_tracking else '❌'}", callback_data="filter_whale"),
+                    InlineKeyboardButton(f"🎭 SPOOFING {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing")
                 ],
                 [
-                    InlineKeyboardButton(f"📊 Spread Filter {'✅' if spread_filter else '❌'}", callback_data="filter_spread"),
-                    InlineKeyboardButton(f"📈 Trend Match {'✅' if trend_match else '❌'}", callback_data="filter_trend")
+                    InlineKeyboardButton(f"📊 SPREAD FILTER {'✅' if spread_filter else '❌'}", callback_data="filter_spread"),
+                    InlineKeyboardButton(f"📈 TREND MATCH {'✅' if trend_match else '❌'}", callback_data="filter_trend")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1355,7 +1355,7 @@ Toggle advanced scanner features:
             await query.edit_message_text(
                 f"❌ Error showing feature settings: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ]])
             )
     
@@ -1380,7 +1380,7 @@ Toggle advanced scanner features:
             
             # Build settings message
             settings_message = f"""
-📋 <b>Pairs Management</b>
+📋 <b>PAIRS MANAGEMENT</b>
 
 Currently monitoring {pairs_count} trading pairs:
 
@@ -1392,17 +1392,17 @@ Currently monitoring {pairs_count} trading pairs:
             # Create keyboard with management buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("➕ Add Pair", callback_data="settings_add_pair"),
-                    InlineKeyboardButton("➖ Remove Pair", callback_data="settings_remove_pair")
+                    InlineKeyboardButton("➕ ADD PAIR", callback_data="settings_add_pair"),
+                    InlineKeyboardButton("➖ REMOVE PAIR", callback_data="settings_remove_pair")
                 ],
                 [
-                    InlineKeyboardButton("🎯 TP Multipliers", callback_data="settings_tp_multipliers")
+                    InlineKeyboardButton("🎯 TP MULTIPLIERS", callback_data="settings_tp_multipliers")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ],
                 [
-                    InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")
+                    InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
                 ]
             ]
             
@@ -1417,7 +1417,7 @@ Currently monitoring {pairs_count} trading pairs:
             await query.edit_message_text(
                 f"❌ Error showing pairs settings: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
+                    InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")
                 ]])
             )
     
@@ -1429,12 +1429,12 @@ Currently monitoring {pairs_count} trading pairs:
             
             # Create a keyboard with the Resume button and Back button
             keyboard = [
-                [InlineKeyboardButton("▶️ Resume Scanner", callback_data="resume_scanner")]
+                [InlineKeyboardButton("▶️ RESUME SCANNER", callback_data="resume_scanner")]
             ]
-            keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")])
             
             await query.edit_message_text(
-                "⏸ <b>Scanner Paused!</b>\n\n"
+                "⏸ <b>SCANNER PAUSED!</b>\n\n"
                 "The scanner has been paused and will not generate any signals.\n"
                 "Click 'Resume Scanner' to start scanning again.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1455,10 +1455,10 @@ Currently monitoring {pairs_count} trading pairs:
             keyboard = [
                 [InlineKeyboardButton("⏸ Pause Scanner", callback_data="pause_scanner")]
             ]
-            keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")])
             
             await query.edit_message_text(
-                "▶️ <b>Scanner Resumed!</b>\n\n"
+                "▶️ <b>SCANNER RESUMED!</b>\n\n"
                 "The scanner is now running and will generate signals.\n"
                 "Click 'Pause Scanner' to stop scanning.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1471,10 +1471,10 @@ Currently monitoring {pairs_count} trading pairs:
     
     async def logout(self, query):
         """Handle logout with restart option"""
-        keyboard = [[InlineKeyboardButton("🔄 Restart", callback_data="restart_session")]]
+        keyboard = [[InlineKeyboardButton("🔄 RESTART", callback_data="restart_session")]]
         
         await query.edit_message_text(
-            "👋 Logged out. Use /start to return.",
+            "🔴 Logged out. The admin session has ended and all admin panel buttons have been disabled.\nTo re-enable all bot features, click the Restart button below.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -1483,11 +1483,12 @@ Currently monitoring {pairs_count} trading pairs:
         keyboard = self.get_admin_keyboard()
         
         welcome_message = f"""
-🤖 <b>Bybit Scanner Bot - Admin Panel</b>
+🤖 <b>BYBIT SCANNER BOT - ADMIN PANEL</b>
 
 Welcome back! 👋
 
-🎛️ <b>Control Panel:</b>
+🎛️ <b>CONTROL PANEL:</b>
+
 • Monitor trading signals in real-time
 • Configure scanner settings and thresholds
 • Manage subscriber notifications  
@@ -1526,9 +1527,9 @@ Choose an option from the menu below:
                 scanner_status = db.get_scanner_status()
                 current_value = scanner_status.get('pump_threshold', 5.0)
                 
-                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
                 await query.edit_message_text(
-                    f"🚀 **Set Pump Threshold**\n\n"
+                    f"🚀 **SET PUMP THRESHOLD**\n\n"
                     f"Enter new pump threshold percentage (e.g., `5.5`):\n\n"
                     f"Current value: {current_value}%\n"
                     f"Valid range: 0.1% to 50.0%",
@@ -1543,9 +1544,9 @@ Choose an option from the menu below:
                 scanner_status = db.get_scanner_status()
                 current_value = scanner_status.get('dump_threshold', -5.0)
                 
-                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
                 await query.edit_message_text(
-                    f"📉 **Set Dump Threshold**\n\n"
+                    f"📉 **SET DUMP THRESHOLD**\n\n"
                     f"Enter new dump threshold percentage (e.g., `-6.0`):\n\n"
                     f"Current value: {current_value}%\n"
                     f"Valid range: -50.0% to -0.1%",
@@ -1559,9 +1560,9 @@ Choose an option from the menu below:
                 scanner_status = db.get_scanner_status()
                 current_value = scanner_status.get('breakout_threshold', 3.0)
                 
-                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
                 await query.edit_message_text(
-                    f"💥 **Set Breakout Threshold**\n\n"
+                    f"💥 **SET BREAK THRESHOLD**\n\n"
                     f"Enter new breakout threshold percentage (e.g., `4.0`):\n\n"
                     f"Current value: {current_value}%\n"
                     f"Valid range: 0.1% to 20.0%",
@@ -1575,9 +1576,9 @@ Choose an option from the menu below:
                 scanner_status = db.get_scanner_status()
                 current_value = scanner_status.get('volume_threshold', 50.0)
                 
-                keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
                 await query.edit_message_text(
-                    f"📊 **Set Volume Threshold**\n\n"
+                    f"📊 **SET VOLUME THRESHOLD**\n\n"
                     f"Enter new volume threshold percentage (e.g., `50`):\n\n"
                     f"Current value: {current_value}%\n"
                     f"Valid range: 1.0% to 200.0%",
@@ -1598,9 +1599,9 @@ Choose an option from the menu below:
             scanner_status = db.get_scanner_status()
             tp_multipliers_str = scanner_status.get('tp_multipliers', '[1.5, 3.0, 5.0, 7.5]')
             
-            keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+            keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
             await query.edit_message_text(
-                f"🎯 **Set TP Multipliers**\n\n"
+                f"🎯 **SET TP MULTIPLIERS**\n\n"
                 f"Enter new TP multipliers as comma-separated values (e.g., `1.5, 3.0, 5.0, 7.5`):\n\n"
                 f"Current values: {tp_multipliers_str}\n"
                 f"Valid range: 0.5 to 20.0 for each multiplier",
@@ -1650,9 +1651,9 @@ Choose an option from the menu below:
             status_emoji = "✅" if new_state else "❌"
             status_text = "ENABLED" if new_state else "DISABLED"
             
-            keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
+            keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
             await query.edit_message_text(
-                f"🔄 <b>Filter Updated!</b>\n\n"
+                f"🔄 <b>FILTER UPDATED!</b>\n\n"
                 f"🎯 <b>{filter_name.title()} Filter:</b> {status_emoji} {status_text}",
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1826,21 +1827,21 @@ Click below to toggle filters:"""
             keyboard = [
                 [
                     InlineKeyboardButton(
-                        f"🐋 Whale {get_status_emoji(filters['whale_tracking'])}", 
+                        f"🐋 WHALE {get_status_emoji(filters['whale_tracking'])}",
                         callback_data="filter_whale"
                     ),
                     InlineKeyboardButton(
-                        f"🎭 Spoof {get_status_emoji(filters['spoofing_detection'])}", 
+                        f"🎭 SPOOF {get_status_emoji(filters['spoofing_detection'])}",
                         callback_data="filter_spoofing"
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        f"📊 Spread {get_status_emoji(filters['spread_filter'])}", 
+                        f"📊 SPREAD {get_status_emoji(filters['spread_filter'])}",
                         callback_data="filter_spread"
                     ),
                     InlineKeyboardButton(
-                        f"📈 Trend {get_status_emoji(filters['trend_match'])}", 
+                        f"📈 TREND {get_status_emoji(filters['trend_match'])}",
                         callback_data="filter_trend"
                     )
                 ],
@@ -1850,17 +1851,17 @@ Click below to toggle filters:"""
                         callback_data="filter_rsi"
                     ),
                     InlineKeyboardButton(
-                        f"💧 Liquid {get_status_emoji(filters['liquidity_filter'])}", 
+                        f"💧 LIQUID {get_status_emoji(filters['liquidity_filter'])}",
                         callback_data="filter_liquidity"
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        f"📊 Diverg {get_status_emoji(filters['volume_divergence'])}", 
+                        f"📊 DIVERG {get_status_emoji(filters['volume_divergence'])}",
                         callback_data="filter_divergence"
                     )
                 ],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1906,7 +1907,7 @@ Click below to toggle filters:"""
             except:
                 uptime_formatted = "Unknown"
             
-            message = f"""🖥 **System Status**
+            message = f"""🖥 **SYSTEM STATUS**
 
 **🤖 Bot Status:**
 • Status: {'🟢 Online' if is_running else '🔴 Offline'}
@@ -1942,8 +1943,8 @@ Click below to toggle filters:"""
             
             # Create keyboard with back button
             keyboard = [
-                [InlineKeyboardButton("🔄 Refresh Status", callback_data="advanced_system_status")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔄 REFRESH STATUS", callback_data="advanced_system_status")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
             ]
             
             await query.edit_message_text(
@@ -1974,16 +1975,22 @@ Click below to toggle filters:"""
                 # Fallback to default pairs if JSON parsing fails
                 monitored_pairs = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
             
-            # Test API connectivity first with shorter timeout
+            # Test public API connectivity first with appropriate timeout
             api_test_passed = False
             try:
+                print("⚡ Testing public API connectivity...")
                 test_result = await asyncio.wait_for(
                     enhanced_scanner.test_api_connectivity(),
-                    timeout=3.0  # Reduced timeout for faster response
+                    timeout=8.0  # Longer timeout for public API
                 )
                 api_test_passed = test_result
+                if api_test_passed:
+                    print("✅ Public API connectivity successful")
+                else:
+                    print("❌ Public API connectivity failed")
             except Exception as e:
-                print(f"API connectivity test failed: {e}")
+                print(f"❌ Public API connectivity test failed: {e}")
+                api_test_passed = False
             
             # Get live data for top 5 pairs with timeout and sequential requests for public API
             live_data = []
@@ -2091,7 +2098,7 @@ Click below to toggle filters:"""
             api_status_emoji = "🟢" if api_test_passed else "🔴"
             api_status_text = "Connected" if api_test_passed else "Issues"
             
-            message = f"""📊 **Live Market Monitor**
+            message = f"""📊 **LIVE MARKET MONITOR**
             
 🤖 **Scanner Status:** {status_emoji} {status_text}
 🌐 **API Status:** {api_status_emoji} {api_status_text}
@@ -2128,9 +2135,9 @@ Click below to toggle filters:"""
             
             # Add refresh button and force scan option
             keyboard = [
-                [InlineKeyboardButton("🔄 Refresh", callback_data="live_monitor")],
-                [InlineKeyboardButton("⚡ Force Scan", callback_data="force_scan")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔄 REFRESH", callback_data="live_monitor")],
+                [InlineKeyboardButton("⚡ FORCE SCAN", callback_data="force_scan")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -2150,7 +2157,7 @@ Please try again or check the API connection.
 """
             keyboard = [
                 [InlineKeyboardButton("🔄 Try Again", callback_data="live_monitor")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -2251,7 +2258,7 @@ Please try again or check the API connection.
             
             # Format results message
             from datetime import datetime as dt
-            message = f"""⚡ **Force Scan Complete**
+            message = f"""⚡ **FORCE SCAN COMPLETE**
 
 📊 **Scan Results:**
 {chr(10).join(scan_results)}
@@ -2275,9 +2282,9 @@ Please try again or check the API connection.
             
             # Add menu buttons
             keyboard = [
-                [InlineKeyboardButton("⚡ Scan Again", callback_data="force_scan")],
-                [InlineKeyboardButton("📈 Signals Log", callback_data="signals_log")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+                [InlineKeyboardButton("⚡ SCAN AGAIN", callback_data="force_scan")],
+                [InlineKeyboardButton("📈 SIGNALS LOG", callback_data="signals_log")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -2527,7 +2534,7 @@ Please try again or check the API connection.
             db.update_scanner_setting('tp_multipliers', new_tp_str)
             
             await update.message.reply_text(
-                f"✅ **TP Multipliers Updated!**\n\n"
+                f"✅ **TP MULTIPLIERS Updated!**\n\n"
                 f"📊 **Previous:** {current_tp}\n"
                 f"🎯 **New:** {new_tp_str}\n\n"
                 f"**Take Profit Targets:**\n"
@@ -2548,9 +2555,9 @@ Please try again or check the API connection.
         try:
             if data == "settings_add_pair":
                 # Start add pair conversation
-                keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
                 await query.edit_message_text(
-                    "➕ **Add New Trading Pair**\n\n"
+                    "➕ **ADD NEW TRADING PAIR**\n\n"
                     "Please send the trading pair symbol (e.g., `BTCUSDT`, `ETHUSDT`):\n\n"
                     "**Format:** Symbol must end with USDT\n"
                     "**Example:** `ADAUSDT`",
@@ -2569,7 +2576,7 @@ Please try again or check the API connection.
                     monitored_pairs = []
                 
                 if not monitored_pairs:
-                    keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                    keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
                     await query.edit_message_text(
                         "❌ **No Pairs to Remove**\n\nThere are no monitored pairs to remove.",
                         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2577,9 +2584,9 @@ Please try again or check the API connection.
                     return ConversationHandler.END
                 
                 pairs_list = '\n'.join([f"• {pair}" for pair in monitored_pairs])
-                keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
                 await query.edit_message_text(
-                    f"➖ **Remove Trading Pair**\n\n"
+                    f"➖ **REMOVE TRADING PAIR**\n\n"
                     f"Current monitored pairs:\n{pairs_list}\n\n"
                     f"Please send the trading pair symbol to remove:",
                     reply_markup=InlineKeyboardMarkup(keyboard)

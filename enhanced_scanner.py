@@ -139,47 +139,67 @@ class EnhancedBybitScanner:
         self.request_count += 1
         
     async def _make_api_request(self, url, params, headers, max_retries=3, timeout=15):
-        """Make API request with retry logic using aiohttp"""
+        """Make API request with retry logic using aiohttp - optimized for public API"""
         retries = 0
         last_error = None
         
+        # For public API, use a more conservative timeout
+        if not self.api_secret:
+            timeout = min(timeout, 10)  # More conservative timeout for public API
+        
         while retries < max_retries:
             try:
-                timeout_config = aiohttp.ClientTimeout(total=timeout, connect=10, sock_read=10)
+                # Use a more conservative timeout configuration for public API
+                timeout_config = aiohttp.ClientTimeout(total=timeout, connect=5, sock_read=5)
+                
+                # Use a simpler request approach with fewer options
                 async with aiohttp.ClientSession(timeout=timeout_config) as session:
                     async with session.get(url, params=params, headers=headers) as response:
                         if response.status == 200:
-                            response_data = await response.json()
-                            # Create a mock response object for compatibility
-                            class MockResponse:
-                                def __init__(self, status, data):
-                                    self.status_code = status
-                                    self._data = data
-                                def json(self):
-                                    return self._data
-                            return MockResponse(200, response_data)
+                            try:
+                                response_data = await response.json()
+                                # Create a mock response object for compatibility
+                                class MockResponse:
+                                    def __init__(self, status, data):
+                                        self.status_code = status
+                                        self._data = data
+                                    def json(self):
+                                        return self._data
+                                return MockResponse(200, response_data)
+                            except Exception as e:
+                                print(f"⚠️ Error parsing JSON response: {e}")
+                                last_error = f"JSON parse error: {e}"
                         elif response.status == 429:  # Rate limit exceeded
                             wait_time = 2 ** retries  # Exponential backoff
                             print(f"⚠️ Rate limit exceeded, waiting {wait_time}s before retry...")
+                            self.api_errors += 1  # Increment error count for rate limiting
                             await asyncio.sleep(wait_time)
                             last_error = f"Rate limit exceeded (429)"
                         else:
-                            response_text = await response.text()
-                            error_msg = f"HTTP {response.status}: {response_text[:200]}"
+                            try:
+                                response_text = await response.text()
+                                error_msg = f"HTTP {response.status}: {response_text[:200]}"
+                            except:
+                                error_msg = f"HTTP {response.status}: Unable to read response"
+                            
                             print(f"⚠️ API request failed: {error_msg}")
+                            self.api_errors += 1  # Increment error count for rate limiting
                             last_error = error_msg
                             
             except asyncio.TimeoutError:
                 error_msg = f"Request timed out after {timeout}s"
                 print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                self.api_errors += 1  # Increment error count for rate limiting
                 last_error = error_msg
             except aiohttp.ClientError as e:
                 error_msg = f"Connection error: {e}"
                 print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                self.api_errors += 1  # Increment error count for rate limiting
                 last_error = error_msg
             except Exception as e:
                 error_msg = f"Unexpected error: {e}"
                 print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                self.api_errors += 1  # Increment error count for rate limiting
                 last_error = error_msg
             
             retries += 1
@@ -189,6 +209,7 @@ class EnhancedBybitScanner:
                 await asyncio.sleep(wait_time)
         
         print(f"❌ All retries failed. Last error: {last_error}")
+        self.api_errors += 1  # Increment error count for rate limiting
         return None  # All retries failed
     
     def _generate_signature(self, params: str, timestamp: str) -> str:
@@ -258,19 +279,32 @@ class EnhancedBybitScanner:
                     ticker = data['result']['list'][0]
                     self.api_errors = max(0, self.api_errors - 1)  # Reduce error count on success
                     
-                    return MarketData(
-                        symbol=symbol,
-                        price=float(ticker['lastPrice']),
-                        volume_24h=float(ticker['volume24h']),
-                        change_24h=float(ticker['price24hPcnt']) * 100,
-                        high_24h=float(ticker['highPrice24h']),
-                        low_24h=float(ticker['lowPrice24h']),
-                        timestamp=datetime.now()
-                    )
+                    # Handle potential missing or invalid data
+                    try:
+                        price = float(ticker.get('lastPrice', 0))
+                        volume_24h = float(ticker.get('volume24h', 0))
+                        change_24h = float(ticker.get('price24hPcnt', 0)) * 100
+                        high_24h = float(ticker.get('highPrice24h', 0))
+                        low_24h = float(ticker.get('lowPrice24h', 0))
+                        
+                        return MarketData(
+                            symbol=symbol,
+                            price=price,
+                            volume_24h=volume_24h,
+                            change_24h=change_24h,
+                            high_24h=high_24h,
+                            low_24h=low_24h,
+                            timestamp=datetime.now()
+                        )
+                    except (ValueError, TypeError) as e:
+                        print(f"❌ Error parsing ticker data for {symbol}: {e}")
+                        self.api_errors += 1
                 else:
                     print(f"❌ API returned error for {symbol}: {data.get('retMsg', 'Unknown error')}")
+                    self.api_errors += 1
             else:
                 print(f"❌ HTTP error for {symbol}: {response.status_code if response else 'No response'}")
+                self.api_errors += 1
             return None
         except Exception as e:
             print(f"❌ Error fetching market data for {symbol}: {e}")
