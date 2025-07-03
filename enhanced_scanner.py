@@ -110,12 +110,12 @@ class EnhancedBybitScanner:
             await asyncio.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    async def _make_api_request(self, url, params, headers, max_retries=3, timeout=10):
+    async def _make_api_request(self, url, params, headers, max_retries=3, timeout=15):
         """Make API request with retry logic using aiohttp"""
         retries = 0
         while retries < max_retries:
             try:
-                timeout_config = aiohttp.ClientTimeout(total=timeout)
+                timeout_config = aiohttp.ClientTimeout(total=timeout, connect=10, sock_read=10)
                 async with aiohttp.ClientSession(timeout=timeout_config) as session:
                     async with session.get(url, params=params, headers=headers) as response:
                         if response.status == 200:

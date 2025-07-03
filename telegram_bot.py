@@ -179,7 +179,7 @@ class TelegramBot:
                 },
                 fallbacks=[
                     CommandHandler("cancel", self.cancel),
-                    CallbackQueryHandler(self.cancel_conversation, pattern="^(back_to_main|manage_subscribers)$")
+                    CallbackQueryHandler(self.cancel_conversation, pattern="^(back_to_main|manage_subscribers|settings|settings_pairs)$")
                 ],
                 per_chat=True,
                 per_user=True,
@@ -600,6 +600,10 @@ class TelegramBot:
             await self.back_to_main(query)
         elif query.data == "manage_subscribers":
             await self.show_manage_subscribers(query)
+        elif query.data == "settings":
+            await self.show_settings(query)
+        elif query.data == "settings_pairs":
+            await self.show_pairs_settings(query)
         
         return ConversationHandler.END
     
@@ -1257,6 +1261,14 @@ Adjust the thresholds for signal generation:
             # Create keyboard with adjustment buttons
             keyboard = [
                 [
+                    InlineKeyboardButton("🚀 Pump Threshold", callback_data="threshold_pump"),
+                    InlineKeyboardButton("📉 Dump Threshold", callback_data="threshold_dump")
+                ],
+                [
+                    InlineKeyboardButton("💥 Breakout Threshold", callback_data="threshold_breakout"),
+                    InlineKeyboardButton("📊 Volume Threshold", callback_data="threshold_volume")
+                ],
+                [
                     InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
                 ],
                 [
@@ -1315,6 +1327,14 @@ Toggle advanced scanner features:
             # Create keyboard with toggle buttons
             keyboard = [
                 [
+                    InlineKeyboardButton(f"🐋 Whale {'✅' if whale_tracking else '❌'}", callback_data="filter_whale"),
+                    InlineKeyboardButton(f"🎭 Spoofing {'✅' if spoofing_detection else '❌'}", callback_data="filter_spoofing")
+                ],
+                [
+                    InlineKeyboardButton(f"📊 Spread Filter {'✅' if spread_filter else '❌'}", callback_data="filter_spread"),
+                    InlineKeyboardButton(f"📈 Trend Match {'✅' if trend_match else '❌'}", callback_data="filter_trend")
+                ],
+                [
                     InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
                 ],
                 [
@@ -1369,6 +1389,13 @@ Currently monitoring {pairs_count} trading pairs:
             
             # Create keyboard with management buttons
             keyboard = [
+                [
+                    InlineKeyboardButton("➕ Add Pair", callback_data="settings_add_pair"),
+                    InlineKeyboardButton("➖ Remove Pair", callback_data="settings_remove_pair")
+                ],
+                [
+                    InlineKeyboardButton("🎯 TP Multipliers", callback_data="settings_tp_multipliers")
+                ],
                 [
                     InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")
                 ],
@@ -1623,9 +1650,9 @@ Choose an option from the menu below:
             
             keyboard = [[InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]]
             await query.edit_message_text(
-                f"🔄 **Filter Updated!**\n\n"
-                f"🎯 **{filter_name.title()} Filter:** {status_emoji} {status_text}",
-                parse_mode='Markdown',
+                f"🔄 <b>Filter Updated!</b>\n\n"
+                f"🎯 <b>{filter_name.title()} Filter:</b> {status_emoji} {status_text}",
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -1682,14 +1709,17 @@ Message:
                 await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"📊 **Signals Log Export**\n\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
+                    caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
                 )
             
             # Clean up temp file
             os.unlink(temp_file)
             
-            # Update the message
-            keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
+            # Update the message with back button
+            keyboard = [
+                [InlineKeyboardButton("🔙 Back to Signals Log", callback_data="signals_log")],
+                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
@@ -1940,7 +1970,7 @@ Click below to toggle filters:"""
         """Show live market monitor for top pairs - optimized for speed"""
         try:
             # Immediately show a loading message to improve response speed
-            await query.edit_message_text("📊 **Loading Live Monitor...**")
+            await query.edit_message_text("📊 **Loading Live Monitor...**\n⚠️ Please do not take any action until information is received.")
             
             from enhanced_scanner import enhanced_scanner
             import asyncio
@@ -1984,7 +2014,7 @@ Click below to toggle filters:"""
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
                         'error': True,
-                        'error_msg': 'Request timeout'
+                        'error_msg': 'API timeout'
                     }
                 except Exception as e:
                     print(f"Error getting data for {symbol}: {e}")
@@ -2035,7 +2065,7 @@ Click below to toggle filters:"""
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
                         'error': True,
-                        'error_msg': 'Overall timeout'
+                        'error_msg': 'API timeout'
                     })
             
             # Format live monitor message
@@ -2059,6 +2089,8 @@ Click below to toggle filters:"""
             for data in live_data:
                 if data.get('error'):
                     error_msg = data.get('error_msg', 'API timeout')
+                    if 'timeout' in error_msg.lower():
+                        error_msg = "Data unavailable (API timeout)"
                     message += f"""
 **{data['symbol']}**
 ⚠️ {error_msg}
@@ -2096,7 +2128,7 @@ Click below to toggle filters:"""
             import asyncio
             
             # Show immediate loading response
-            await query.edit_message_text("⚡ **Force Scan Initiated...**\n\n🔍 Scanning monitored pairs...")
+            await query.edit_message_text("⚡ **Force Scan Initiated...**\n🔍 Scanning monitored pairs...\n⚠️ Please do not take any action until information is received.")
             
             # Get monitored pairs
             scanner_status = db.get_scanner_status()
@@ -2128,11 +2160,27 @@ Click below to toggle filters:"""
                                 timeout=3.0
                             )
                             if market_data:
-                                return f"📊 **{symbol}**: ${market_data.price:.4f} ({market_data.change_24h:+.2f}%) - No signal"
+                                # Get scanner thresholds for context
+                                scanner_status = db.get_scanner_status()
+                                pump_threshold = scanner_status.get('pump_threshold', 5.0)
+                                dump_threshold = scanner_status.get('dump_threshold', -5.0)
+                                
+                                # Provide more context about why no signal
+                                change = market_data.change_24h
+                                if abs(change) < 1.0:
+                                    reason = "Low volatility"
+                                elif change > 0 and change < pump_threshold:
+                                    reason = f"Below pump threshold ({pump_threshold}%)"
+                                elif change < 0 and change > dump_threshold:
+                                    reason = f"Above dump threshold ({dump_threshold}%)"
+                                else:
+                                    reason = "Filters not met"
+                                
+                                return f"📊 **{symbol}**: ${market_data.price:.4f} ({change:+.2f}%) - {reason}"
                             else:
-                                return f"📊 **{symbol}**: No signal"
+                                return f"📊 **{symbol}**: No data available"
                         except:
-                            return f"📊 **{symbol}**: No signal"
+                            return f"📊 **{symbol}**: Data fetch failed"
                         
                 except asyncio.TimeoutError:
                     return f"⏱️ **{symbol}**: Timeout"
@@ -2169,8 +2217,15 @@ Click below to toggle filters:"""
             if signals_found:
                 message += f"\n✅ **{len(signals_found)} signals sent to recipients!**"
             else:
-                message += "\nℹ️ **No signals met the threshold criteria**"
-                message += "\n📋 **Above data shows actual market prices scanned**"
+                # Get current thresholds for context
+                scanner_status = db.get_scanner_status()
+                pump_threshold = scanner_status.get('pump_threshold', 5.0)
+                dump_threshold = scanner_status.get('dump_threshold', -5.0)
+                
+                message += f"\nℹ️ **No signals met the criteria**"
+                message += f"\n📊 **Current Thresholds:** Pump ≥{pump_threshold}%, Dump ≤{dump_threshold}%"
+                message += f"\n🔍 **Signal Requirements:** ≥70% strength + multiple filters"
+                message += f"\n📋 **Above data shows actual market prices scanned**"
             
             # Add menu buttons
             keyboard = [
@@ -2441,6 +2496,58 @@ Click below to toggle filters:"""
             await update.message.reply_text(f"❌ Error updating TP multipliers: {e}")
         
         return ConversationHandler.END
+    
+    async def handle_settings_callback(self, query, data):
+        """Handle settings-related callbacks that start conversations"""
+        try:
+            if data == "settings_add_pair":
+                # Start add pair conversation
+                keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                await query.edit_message_text(
+                    "➕ **Add New Trading Pair**\n\n"
+                    "Please send the trading pair symbol (e.g., `BTCUSDT`, `ETHUSDT`):\n\n"
+                    "**Format:** Symbol must end with USDT\n"
+                    "**Example:** `ADAUSDT`",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return WAITING_PAIR_ADD
+                
+            elif data == "settings_remove_pair":
+                # Start remove pair conversation
+                scanner_status = db.get_scanner_status()
+                monitored_pairs_str = scanner_status.get('monitored_pairs', '[]')
+                try:
+                    monitored_pairs = json.loads(monitored_pairs_str)
+                except:
+                    monitored_pairs = []
+                
+                if not monitored_pairs:
+                    keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                    await query.edit_message_text(
+                        "❌ **No Pairs to Remove**\n\nThere are no monitored pairs to remove.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return ConversationHandler.END
+                
+                pairs_list = '\n'.join([f"• {pair}" for pair in monitored_pairs])
+                keyboard = [[InlineKeyboardButton("🔙 Back to Pairs", callback_data="settings_pairs")]]
+                await query.edit_message_text(
+                    f"➖ **Remove Trading Pair**\n\n"
+                    f"Current monitored pairs:\n{pairs_list}\n\n"
+                    f"Please send the trading pair symbol to remove:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return WAITING_PAIR_REMOVE
+                
+            else:
+                # Unknown settings callback
+                await query.edit_message_text("❌ Unknown settings option")
+                return ConversationHandler.END
+                
+        except Exception as e:
+            await query.edit_message_text(f"❌ Settings error: {e}")
+            return ConversationHandler.END
     
     def get_application(self):
         """Get the telegram application instance"""
