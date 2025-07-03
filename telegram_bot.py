@@ -852,10 +852,10 @@ Use /start to access the main control panel.
         help_text = f"""
 🚀 <b>ENHANCED BYBIT SCANNER BOT - HELP</b>
 
-<b>📋 Project Overview:</b>
+<b>📋 PROJECT OVERVIEW:</b>
 A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetuals with advanced market analysis, multi-layered filtering, and real-time alerts.
 
-<b>✨ Core Features:</b>
+<b>✨ CORE FEATURES:</b>
 • 🔍 Real-time Market Scanning (1-minute intervals)
 • 🧠 Advanced Signal Detection (10+ layered filters)
 • 📱 Telegram Integration with automated alerts
@@ -885,7 +885,7 @@ Only the administrator, the administrator’s private channel, and subscribers e
 • Export logs for analysis and reporting
         """.strip()
         
-        keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
+        keyboard = [[InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]]
         
         await query.edit_message_text(
             help_text,
@@ -2586,7 +2586,7 @@ Please try again or check the API connection.
                 pairs_list = '\n'.join([f"• {pair}" for pair in monitored_pairs])
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
                 await query.edit_message_text(
-                    f"➖ **REMOVE TRADING PAIR**\n\n"
+                    f"➖ REMOVE TRADING PAIR\n\n"
                     f"Current monitored pairs:\n{pairs_list}\n\n"
                     f"Please send the trading pair symbol to remove:",
                     reply_markup=InlineKeyboardMarkup(keyboard)
