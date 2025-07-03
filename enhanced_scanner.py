@@ -83,7 +83,8 @@ class EnhancedBybitScanner:
     def __init__(self):
         self.base_url = "https://api.bybit.com"
         self.api_key = Config.BYBIT_API_KEY if hasattr(Config, 'BYBIT_API_KEY') and Config.BYBIT_API_KEY else None
-        self.api_secret = Config.BYBIT_SECRET if hasattr(Config, 'BYBIT_SECRET') and Config.BYBIT_SECRET else None
+        # We're using public API only, so we don't need the secret
+        self.api_secret = None
         
         # Optimized memory management with circular buffers
         self.price_history = {}  # Limited to last 100 entries per symbol
@@ -91,11 +92,14 @@ class EnhancedBybitScanner:
         self.last_scan_time = {}
         self.max_history_size = 100  # Prevent memory leaks
         
-        # Rate limiting with dynamic adjustment
+        # Rate limiting optimized for public API
         self.last_request_time = 0
-        # More conservative rate limiting for public API
-        self.min_request_interval = 0.2 if not self.api_key else 0.1  # 200ms for public, 100ms for authenticated
+        # More conservative rate limiting for public API (5 requests per second max)
+        self.min_request_interval = 0.25  # 250ms between requests (4 req/sec) to stay under limits
         self.api_errors = 0  # Track API errors for adaptive rate limiting
+        self.request_count = 0
+        self.request_window_start = time.time()
+        self.max_requests_per_window = 10  # Max 10 requests per 1-second window
         
         # New filter thresholds for enhanced requirements
         self.whale_threshold = 15000  # $15k minimum for whale detection
@@ -104,12 +108,35 @@ class EnhancedBybitScanner:
         self.rsi_oversold = 25   # Block SHORT signals below this
         
     async def _rate_limit(self):
-        """Implement rate limiting"""
+        """Implement enhanced rate limiting for public API"""
         current_time = time.time()
+        
+        # Check time since last request (basic rate limiting)
         time_since_last = current_time - self.last_request_time
         if time_since_last < self.min_request_interval:
             await asyncio.sleep(self.min_request_interval - time_since_last)
+        
+        # Check if we're in a new time window
+        window_duration = current_time - self.request_window_start
+        if window_duration >= 1.0:  # 1 second window
+            # Reset for new window
+            self.request_window_start = current_time
+            self.request_count = 0
+        
+        # Check if we've exceeded our rate limit for this window
+        if self.request_count >= self.max_requests_per_window:
+            # Wait until the end of the current window
+            wait_time = 1.0 - window_duration
+            if wait_time > 0:
+                print(f"⚠️ Rate limit approaching, waiting {wait_time:.2f}s")
+                await asyncio.sleep(wait_time)
+                # Reset for new window
+                self.request_window_start = time.time()
+                self.request_count = 0
+        
+        # Update tracking variables
         self.last_request_time = time.time()
+        self.request_count += 1
         
     async def _make_api_request(self, url, params, headers, max_retries=3, timeout=15):
         """Make API request with retry logic using aiohttp"""
@@ -177,22 +204,14 @@ class EnhancedBybitScanner:
         ).hexdigest()
     
     def _get_auth_headers(self, params: Dict = None) -> Dict[str, str]:
-        """Get authentication headers for API requests"""
+        """Get headers for public API requests"""
         headers = {
             'Content-Type': 'application/json'
         }
         
-        # Only add auth headers if we have API key
+        # Add API key if available (helps with higher rate limits)
         if self.api_key:
-            timestamp = str(int(time.time() * 1000))
             headers['X-BAPI-API-KEY'] = self.api_key
-            headers['X-BAPI-TIMESTAMP'] = timestamp
-            
-            # Add signature for authenticated requests
-            if self.api_secret and params:
-                param_str = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
-                signature = self._generate_signature(param_str, timestamp)
-                headers['X-BAPI-SIGN'] = signature
         
         return headers
     
@@ -204,14 +223,18 @@ class EnhancedBybitScanner:
                 history_dict[symbol] = history_dict[symbol][-self.max_history_size:]
     
     def _adaptive_rate_limit(self):
-        """Adjust rate limiting based on API performance"""
-        if self.api_errors > 5:
-            # Slow down if we're getting errors
-            self.min_request_interval = min(0.2, self.min_request_interval * 1.5)
+        """Adjust rate limiting based on API performance for public endpoints"""
+        if self.api_errors > 3:
+            # Slow down significantly if we're getting errors (public API is stricter)
+            self.min_request_interval = min(0.5, self.min_request_interval * 1.5)  # Up to 500ms between requests
+            self.max_requests_per_window = max(5, self.max_requests_per_window - 1)  # Reduce window limit
+            print(f"⚠️ Reducing API rate limits due to errors: {self.min_request_interval:.2f}s interval, {self.max_requests_per_window} req/window")
             self.api_errors = 0
         elif self.api_errors == 0:
-            # Speed up if no errors
-            self.min_request_interval = max(0.05, self.min_request_interval * 0.9)
+            # Speed up very gradually if no errors
+            self.min_request_interval = max(0.2, self.min_request_interval * 0.95)  # No faster than 200ms
+            if self.min_request_interval < 0.3:  # Only increase window limit if we're at a good interval
+                self.max_requests_per_window = min(10, self.max_requests_per_window + 1)  # Increase window limit
     
     async def get_market_data(self, symbol: str) -> Optional[MarketData]:
         """Get comprehensive market data for a symbol"""
@@ -788,19 +811,30 @@ class EnhancedBybitScanner:
                 print(f"❌ Error scanning {symbol}: {e}")
                 return None
         
-        # Process symbols in smaller batches to avoid overwhelming the API
-        batch_size = 5
+        # Process symbols in smaller batches with more conservative limits for public API
+        batch_size = 3  # Smaller batch size for public API
         for i in range(0, len(monitored_pairs), batch_size):
             batch = monitored_pairs[i:i+batch_size]
-            batch_results = await asyncio.gather(*[scan_with_timeout(symbol) for symbol in batch])
+            print(f"📊 Processing batch {i//batch_size + 1}/{math.ceil(len(monitored_pairs)/batch_size)}: {', '.join(batch)}")
+            
+            # Use semaphore to limit concurrent requests
+            semaphore = asyncio.Semaphore(2)  # Max 2 concurrent requests for public API
+            
+            async def limited_scan(symbol):
+                async with semaphore:
+                    return await scan_with_timeout(symbol)
+            
+            batch_results = await asyncio.gather(*[limited_scan(symbol) for symbol in batch])
             
             for symbol, result in zip(batch, batch_results):
                 if result:
                     signals.append(result)
                     print(f"🎯 Signal generated for {symbol}: {result.signal_type} ({result.strength:.1f}%)")
             
-            # Add a small delay between batches
-            await asyncio.sleep(1)
+            # Add a longer delay between batches for public API
+            delay = 2.0  # 2 seconds between batches
+            print(f"⏱️ Waiting {delay}s before next batch to respect rate limits...")
+            await asyncio.sleep(delay)
         
         return signals
     
@@ -888,9 +922,9 @@ class EnhancedBybitScanner:
             print(f"❌ Error sending enhanced signal: {e}")
     
     async def test_api_connectivity(self) -> bool:
-        """Test API connectivity and authentication"""
+        """Test API connectivity for public endpoints"""
         try:
-            print("🔍 Testing Bybit API connectivity...")
+            print("🔍 Testing Bybit public API connectivity...")
             
             # Test basic connection with a simple ticker request
             url = f"{self.base_url}/v5/market/tickers"
@@ -908,10 +942,10 @@ class EnhancedBybitScanner:
                     ticker = data['result']['list'][0]
                     price = float(ticker['lastPrice'])
                     
-                    print(f"✅ API Connection: SUCCESS")
-                    print(f"✅ Using API Key: {'Yes' if self.api_key else 'No (Public)'}")
-                    print(f"✅ Authentication: {'Enabled' if self.api_secret else 'Public Only'}")
-                    print(f"✅ Rate Limit: {1/self.min_request_interval:.0f} requests/second")
+                    print(f"✅ Public API Connection: SUCCESS")
+                    print(f"✅ Using API Key for Rate Limits: {'Yes' if self.api_key else 'No'}")
+                    print(f"✅ Mode: Public API (Read-Only)")
+                    print(f"✅ Rate Limit: {1/self.min_request_interval:.1f} requests/second, {self.max_requests_per_window} per window")
                     print(f"✅ Test Data: BTCUSDT @ ${price:,.2f}")
                     
                     return True
@@ -931,12 +965,16 @@ class EnhancedBybitScanner:
         print("🚀 Starting Enhanced Bybit Scanner...")
         print("🔍 Using 5-minute candles with advanced filtering")
         print("📊 Confluence-based signal generation")
-        print("⚡ Real-time order book analysis with API key")
+        print("⚡ Real-time order book analysis using public API")
+        print("⚠️ Using public API with optimized rate limiting")
         
         # Test API connectivity first
         if not await self.test_api_connectivity():
             print("⚠️ API connectivity issues - scanner may not work properly")
             print("🔧 Check your internet connection and API configuration")
+        else:
+            print("✅ Public API connection successful - scanner ready")
+            print(f"⏱️ Rate limits: {1/self.min_request_interval:.1f} req/sec, {self.max_requests_per_window} per window")
         
         while True:
             try:

@@ -1714,10 +1714,7 @@ Message:
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
                 )
-            
-            # Wait for the file to be processed and displayed (2 seconds delay)
-            await asyncio.sleep(2)
-            
+
             # Clean up temp file
             os.unlink(temp_file)
             
@@ -1778,10 +1775,7 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
                 )
-            
-            # Wait for the file to be processed and displayed (2 seconds delay)
-            await asyncio.sleep(2)
-            
+
             # Clean up temp file
             os.unlink(temp_file)
             
@@ -1965,7 +1959,7 @@ Click below to toggle filters:"""
         """Show live market monitor for top pairs - optimized for speed and reliability"""
         try:
             # Immediately show a loading message to improve response speed
-            await query.edit_message_text("📊 **Loading Live Monitor...**\n⚠️ Please wait while data is being fetched...")
+            await query.edit_message_text("⏳ Loading Live Monitor...\n\n⚠️ Please do not take any action until information is received.")
             
             from enhanced_scanner import enhanced_scanner
             import asyncio
@@ -1991,7 +1985,7 @@ Click below to toggle filters:"""
             except Exception as e:
                 print(f"API connectivity test failed: {e}")
             
-            # Get live data for top 5 pairs with timeout and concurrent requests
+            # Get live data for top 5 pairs with timeout and sequential requests for public API
             live_data = []
             async def get_pair_data(symbol):
                 try:
@@ -2031,23 +2025,26 @@ Click below to toggle filters:"""
                     }
                 return None
             
-            # Execute requests concurrently with overall timeout
+            # Execute requests with public API rate limiting
             try:
-                # Use semaphore to limit concurrent requests
-                semaphore = asyncio.Semaphore(3)  # Max 3 concurrent requests
+                # Use semaphore to limit concurrent requests (more conservative for public API)
+                semaphore = asyncio.Semaphore(2)  # Max 2 concurrent requests for public API
                 
                 async def limited_request(symbol):
                     async with semaphore:
-                        return await get_pair_data(symbol)
+                        result = await get_pair_data(symbol)
+                        # Add small delay between requests for public API
+                        await asyncio.sleep(0.25)  # 250ms delay between requests
+                        return result
                 
                 # Limit to top 5 pairs for speed
                 top_pairs = monitored_pairs[:5]
                 tasks = [limited_request(symbol) for symbol in top_pairs]
                 
-                # Use wait_for to set an overall timeout
+                # Use wait_for to set an overall timeout (longer for public API)
                 results = await asyncio.wait_for(
                     asyncio.gather(*tasks, return_exceptions=True), 
-                    timeout=10.0  # Reduced overall timeout
+                    timeout=15.0  # Increased timeout for public API
                 )
                 
                 live_data = []
@@ -2170,7 +2167,7 @@ Please try again or check the API connection.
             import asyncio
             
             # Show immediate loading response
-            await query.edit_message_text("⚡ **Force Scan Initiated...**\n🔍 Scanning monitored pairs...\n⚠️ Please do not take any action until information is received.")
+            await query.edit_message_text("⚡ Force Scan Initiated...\n🔍 Scanning monitored pairs...\n\n⚠️ Please do not take any action until information is received.")
             
             # Get monitored pairs
             scanner_status = db.get_scanner_status()
