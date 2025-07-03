@@ -82,8 +82,8 @@ class SignalData:
 class EnhancedBybitScanner:
     def __init__(self):
         self.base_url = "https://api.bybit.com"
-        self.api_key = "1Lf8RrbAZwhGz42UNY"  # Your provided API key
-        self.api_secret = Config.BYBIT_SECRET if hasattr(Config, 'BYBIT_SECRET') else None
+        self.api_key = Config.BYBIT_API_KEY if hasattr(Config, 'BYBIT_API_KEY') and Config.BYBIT_API_KEY else None
+        self.api_secret = Config.BYBIT_SECRET if hasattr(Config, 'BYBIT_SECRET') and Config.BYBIT_SECRET else None
         
         # Optimized memory management with circular buffers
         self.price_history = {}  # Limited to last 100 entries per symbol
@@ -93,7 +93,8 @@ class EnhancedBybitScanner:
         
         # Rate limiting with dynamic adjustment
         self.last_request_time = 0
-        self.min_request_interval = 0.05  # 50ms between requests (higher limit with API key)
+        # More conservative rate limiting for public API
+        self.min_request_interval = 0.2 if not self.api_key else 0.1  # 200ms for public, 100ms for authenticated
         self.api_errors = 0  # Track API errors for adaptive rate limiting
         
         # New filter thresholds for enhanced requirements
@@ -113,6 +114,8 @@ class EnhancedBybitScanner:
     async def _make_api_request(self, url, params, headers, max_retries=3, timeout=15):
         """Make API request with retry logic using aiohttp"""
         retries = 0
+        last_error = None
+        
         while retries < max_retries:
             try:
                 timeout_config = aiohttp.ClientTimeout(total=timeout, connect=10, sock_read=10)
@@ -132,14 +135,25 @@ class EnhancedBybitScanner:
                             wait_time = 2 ** retries  # Exponential backoff
                             print(f"⚠️ Rate limit exceeded, waiting {wait_time}s before retry...")
                             await asyncio.sleep(wait_time)
+                            last_error = f"Rate limit exceeded (429)"
                         else:
-                            print(f"⚠️ API request failed with status code {response.status}, retrying...")
+                            response_text = await response.text()
+                            error_msg = f"HTTP {response.status}: {response_text[:200]}"
+                            print(f"⚠️ API request failed: {error_msg}")
+                            last_error = error_msg
+                            
             except asyncio.TimeoutError:
-                print(f"⚠️ API request timed out, retrying ({retries+1}/{max_retries})...")
+                error_msg = f"Request timed out after {timeout}s"
+                print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                last_error = error_msg
             except aiohttp.ClientError as e:
-                print(f"⚠️ Connection error: {e}, retrying ({retries+1}/{max_retries})...")
+                error_msg = f"Connection error: {e}"
+                print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                last_error = error_msg
             except Exception as e:
-                print(f"⚠️ Unexpected error during API request: {e}, retrying ({retries+1}/{max_retries})...")
+                error_msg = f"Unexpected error: {e}"
+                print(f"⚠️ {error_msg}, retrying ({retries+1}/{max_retries})...")
+                last_error = error_msg
             
             retries += 1
             if retries < max_retries:
@@ -147,6 +161,7 @@ class EnhancedBybitScanner:
                 wait_time = (2 ** retries) + (random.random() * 0.5)
                 await asyncio.sleep(wait_time)
         
+        print(f"❌ All retries failed. Last error: {last_error}")
         return None  # All retries failed
     
     def _generate_signature(self, params: str, timestamp: str) -> str:
@@ -163,19 +178,21 @@ class EnhancedBybitScanner:
     
     def _get_auth_headers(self, params: Dict = None) -> Dict[str, str]:
         """Get authentication headers for API requests"""
-        timestamp = str(int(time.time() * 1000))
-        
         headers = {
-            'X-BAPI-API-KEY': self.api_key,
-            'X-BAPI-TIMESTAMP': timestamp,
             'Content-Type': 'application/json'
         }
         
-        # Add signature for authenticated requests
-        if self.api_secret and params:
-            param_str = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
-            signature = self._generate_signature(param_str, timestamp)
-            headers['X-BAPI-SIGN'] = signature
+        # Only add auth headers if we have API key
+        if self.api_key:
+            timestamp = str(int(time.time() * 1000))
+            headers['X-BAPI-API-KEY'] = self.api_key
+            headers['X-BAPI-TIMESTAMP'] = timestamp
+            
+            # Add signature for authenticated requests
+            if self.api_secret and params:
+                param_str = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
+                signature = self._generate_signature(param_str, timestamp)
+                headers['X-BAPI-SIGN'] = signature
         
         return headers
     
@@ -207,14 +224,14 @@ class EnhancedBybitScanner:
                 'symbol': symbol
             }
             
-            # Add authentication headers for higher rate limits
+            # Get headers (will be public if no API key)
             headers = self._get_auth_headers()
             
             response = await self._make_api_request(url, params, headers)
             
             if response and response.status_code == 200:
                 data = response.json()
-                if data['retCode'] == 0 and data['result']['list']:
+                if data.get('retCode') == 0 and data.get('result', {}).get('list'):
                     ticker = data['result']['list'][0]
                     self.api_errors = max(0, self.api_errors - 1)  # Reduce error count on success
                     
@@ -227,6 +244,10 @@ class EnhancedBybitScanner:
                         low_24h=float(ticker['lowPrice24h']),
                         timestamp=datetime.now()
                     )
+                else:
+                    print(f"❌ API returned error for {symbol}: {data.get('retMsg', 'Unknown error')}")
+            else:
+                print(f"❌ HTTP error for {symbol}: {response.status_code if response else 'No response'}")
             return None
         except Exception as e:
             print(f"❌ Error fetching market data for {symbol}: {e}")
@@ -246,14 +267,14 @@ class EnhancedBybitScanner:
                 'limit': limit
             }
             
-            # Add authentication headers for higher rate limits
+            # Get headers (will be public if no API key)
             headers = self._get_auth_headers()
             
             response = await self._make_api_request(url, params, headers)
             
             if response and response.status_code == 200:
                 data = response.json()
-                if data['retCode'] == 0:
+                if data.get('retCode') == 0 and data.get('result', {}).get('list'):
                     candles = []
                     for kline in data['result']['list']:
                         candles.append(CandleData(
@@ -266,6 +287,10 @@ class EnhancedBybitScanner:
                         ))
                     self.api_errors = max(0, self.api_errors - 1)  # Reduce error count on success
                     return candles
+                else:
+                    print(f"❌ Kline API returned error for {symbol}: {data.get('retMsg', 'Unknown error')}")
+            else:
+                print(f"❌ Kline HTTP error for {symbol}: {response.status_code if response else 'No response'}")
             return []
         except Exception as e:
             print(f"❌ Error fetching klines for {symbol}: {e}")
@@ -284,18 +309,18 @@ class EnhancedBybitScanner:
                 'limit': depth
             }
             
-            # Add authentication headers for higher rate limits
+            # Get headers (will be public if no API key)
             headers = self._get_auth_headers()
             
             response = await self._make_api_request(url, params, headers)
             
             if response and response.status_code == 200:
                 data = response.json()
-                if data['retCode'] == 0:
+                if data.get('retCode') == 0 and data.get('result'):
                     result = data['result']
                     
-                    bids = [(float(bid[0]), float(bid[1])) for bid in result['b']]
-                    asks = [(float(ask[0]), float(ask[1])) for ask in result['a']]
+                    bids = [(float(bid[0]), float(bid[1])) for bid in result.get('b', [])]
+                    asks = [(float(ask[0]), float(ask[1])) for ask in result.get('a', [])]
                     
                     self.api_errors = max(0, self.api_errors - 1)  # Reduce error count on success
                     return OrderBookData(
@@ -303,6 +328,10 @@ class EnhancedBybitScanner:
                         asks=asks,
                         timestamp=datetime.now()
                     )
+                else:
+                    print(f"❌ Order book API returned error for {symbol}: {data.get('retMsg', 'Unknown error')}")
+            else:
+                print(f"❌ Order book HTTP error for {symbol}: {response.status_code if response else 'No response'}")
             return None
         except Exception as e:
             print(f"❌ Error fetching order book for {symbol}: {e}")
@@ -862,19 +891,35 @@ class EnhancedBybitScanner:
         try:
             print("🔍 Testing Bybit API connectivity...")
             
-            # Test basic connection
-            market_data = await self.get_market_data("BTCUSDT")
-            if not market_data:
-                print("❌ Failed to connect to Bybit API")
+            # Test basic connection with a simple ticker request
+            url = f"{self.base_url}/v5/market/tickers"
+            params = {
+                'category': 'linear',
+                'symbol': 'BTCUSDT'
+            }
+            
+            headers = self._get_auth_headers()
+            response = await self._make_api_request(url, params, headers)
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                if data.get('retCode') == 0 and data.get('result', {}).get('list'):
+                    ticker = data['result']['list'][0]
+                    price = float(ticker['lastPrice'])
+                    
+                    print(f"✅ API Connection: SUCCESS")
+                    print(f"✅ Using API Key: {'Yes' if self.api_key else 'No (Public)'}")
+                    print(f"✅ Authentication: {'Enabled' if self.api_secret else 'Public Only'}")
+                    print(f"✅ Rate Limit: {1/self.min_request_interval:.0f} requests/second")
+                    print(f"✅ Test Data: BTCUSDT @ ${price:,.2f}")
+                    
+                    return True
+                else:
+                    print(f"❌ API returned error: {data.get('retMsg', 'Unknown error')}")
+                    return False
+            else:
+                print(f"❌ HTTP error: {response.status_code if response else 'No response'}")
                 return False
-            
-            print(f"✅ API Connection: SUCCESS")
-            print(f"✅ Using API Key: {self.api_key}")
-            print(f"✅ Authentication: {'Enabled' if self.api_secret else 'Public Only'}")
-            print(f"✅ Rate Limit: {1/self.min_request_interval:.0f} requests/second")
-            print(f"✅ Test Data: BTCUSDT @ ${market_data.price:,.2f}")
-            
-            return True
             
         except Exception as e:
             print(f"❌ API connectivity test failed: {e}")

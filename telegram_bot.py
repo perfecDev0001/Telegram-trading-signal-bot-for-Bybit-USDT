@@ -1706,25 +1706,23 @@ Message:
             
             # Send file to user
             with open(temp_file, 'rb') as f:
+                # Send document with only Back to Main Menu button
+                keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
+                    caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}",
+                    reply_markup=reply_markup
                 )
             
             # Clean up temp file
             os.unlink(temp_file)
             
-            # Update the message with back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 Back to Signals Log", callback_data="signals_log")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            # Update the original message to show completion without buttons
             await query.edit_message_text(
-                f"📄 **Export Complete!**\n\n✅ {len(signals)} signals exported as text file",
-                reply_markup=reply_markup
+                f"📄 **Export Complete!**\n\n✅ {len(signals)} signals exported as text file"
             )
             
         except Exception as e:
@@ -1775,22 +1773,23 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
             
             # Send file to user
             with open(temp_file, 'rb') as f:
+                # Send document with Back to Main Menu button
+                keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await query.message.reply_document(
                     document=f,
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"👥 **Subscriber List Export**\n\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
+                    caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}",
+                    reply_markup=reply_markup
                 )
             
             # Clean up temp file
             os.unlink(temp_file)
             
-            # Update the message
-            keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            # Update the original message to show completion without buttons
             await query.edit_message_text(
-                f"📄 **Export Complete!**\n\n✅ {len(active_subscribers)} subscribers exported as text file",
-                reply_markup=reply_markup
+                f"📄 **Export Complete!**\n\n✅ {len(active_subscribers)} subscribers exported as text file"
             )
             
         except Exception as e:
