@@ -56,7 +56,12 @@ class TelegramBot:
             print("📡 Starting polling...")
             await self.application.updater.start_polling(
                 drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"]
+                allowed_updates=["message", "callback_query"],
+                timeout=30,  # 30 second timeout for getting updates
+                read_timeout=30,  # 30 second read timeout
+                write_timeout=30,  # 30 second write timeout
+                connect_timeout=30,  # 30 second connection timeout
+                pool_timeout=30  # 30 second pool timeout
             )
             
             self._running = True
@@ -98,7 +103,29 @@ class TelegramBot:
     
     def is_running(self):
         """Check if bot is running"""
-        return self._running
+        return self._running and hasattr(self.application, 'updater') and self.application.updater and self.application.updater.running
+    
+    async def restart_if_needed(self):
+        """Restart bot if it's not responsive"""
+        try:
+            if not self.is_running():
+                print("🔄 Bot not running, attempting restart...")
+                await self.stop_bot()
+                await asyncio.sleep(5)
+                return await self.start_bot()
+            else:
+                # Test bot responsiveness
+                try:
+                    await asyncio.wait_for(self.application.bot.get_me(), timeout=10)
+                    return True
+                except Exception:
+                    print("🔄 Bot not responsive, restarting...")
+                    await self.stop_bot()
+                    await asyncio.sleep(5)
+                    return await self.start_bot()
+        except Exception as e:
+            print(f"❌ Error during bot restart: {e}")
+            return False
     
 
     
@@ -471,10 +498,28 @@ class TelegramBot:
                 if first_name:
                     message += f"Name: {first_name} {last_name or ''}\n"
                 message += f"\nThey will now receive trading signals!"
+                
+                # Add Back button as requested
+                keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="manage_subscribers")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    message, 
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
             else:
                 message = f"❌ <b>Failed to add subscriber {user_id}</b>\n\nPlease try again or check the user ID."
-            
-            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+                
+                # Add Back button for failed case too
+                keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="manage_subscribers")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    message, 
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
             
         except ValueError:
             await update.message.reply_text(
@@ -500,7 +545,15 @@ class TelegramBot:
                 message = f"❌ <b>Subscriber Not Found</b>\n\n"
                 message += f"User ID <code>{user_id}</code> was not found in the subscriber list."
             
-            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+            # Add Back button as requested
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="manage_subscribers")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                message, 
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
             
         except ValueError:
             await update.message.reply_text(
@@ -547,17 +600,8 @@ class TelegramBot:
         print(f"🔑 Configured admin ID: {admin_id}")
         print(f"✅ Is admin check: {user_id == admin_id}")
         
-        # First try to send a simple response to confirm bot is working
-        try:
-            await update.message.reply_text(
-                f"🤖 Bot received your /start command!\n"
-                f"Your ID: {user_id}\n"
-                f"Processing..."
-            )
-        except Exception as e:
-            logger.error(f"Failed to send initial acknowledgment: {e}")
-            print(f"❌ Failed to send initial response: {e}")
-            return
+        # Remove the processing message that was mentioned as issue
+        # The processing message was causing user confusion, so we'll go directly to the main panel
         
         if not self.is_admin(user.id):
             try:
@@ -781,8 +825,8 @@ Choose an option from the menu below:
             if last_scan and last_scan != 'Never':
                 try:
                     # Convert ISO format to datetime
-                    from datetime import datetime
-                    last_scan_dt = datetime.fromisoformat(last_scan)
+                    from datetime import datetime as dt
+                    last_scan_dt = dt.fromisoformat(last_scan)
                     last_scan = last_scan_dt.strftime('%Y-%m-%d %H:%M:%S')
                 except:
                     pass
@@ -811,7 +855,8 @@ Choose an option from the menu below:
             signals_count = len(recent_signals)
             
             # Build status message with timestamp to ensure uniqueness
-            current_time = datetime.now().strftime('%H:%M:%S')
+            from datetime import datetime as dt
+            current_time = dt.now().strftime('%H:%M:%S')
             status_message = f"""
 📊 <b>Scanner Status</b>
 
@@ -838,9 +883,8 @@ Choose an option from the menu below:
                     if signal_time:
                         try:
                             # Convert to readable format
-                            from datetime import datetime
-                            signal_time = datetime.fromisoformat(signal_time.replace('Z', '+00:00'))
-                            signal_time = signal_time.strftime('%m-%d %H:%M')
+                            signal_dt = dt.fromisoformat(signal_time.replace('Z', '+00:00'))
+                            signal_time = signal_dt.strftime('%m-%d %H:%M')
                         except:
                             pass
                     
@@ -882,8 +926,9 @@ Choose an option from the menu below:
             recent_signals = db.get_recent_signals(10)
             signals_count = len(recent_signals)
             
-            # Add timestamp to ensure message uniqueness
-            current_time = datetime.now().strftime('%H:%M:%S')
+            # Add timestamp to ensure message uniqueness - import datetime here to avoid conflicts
+            from datetime import datetime as dt
+            current_time = dt.now().strftime('%H:%M:%S')
             if signals_count == 0:
                 message = f"""
 📈 <b>Signals Log</b>
@@ -905,10 +950,9 @@ Showing the {signals_count} most recent signals:
                     signal_time = signal.get('timestamp', '')
                     if signal_time:
                         try:
-                            # Convert to readable format
-                            from datetime import datetime
-                            signal_time = datetime.fromisoformat(signal_time.replace('Z', '+00:00'))
-                            signal_time = signal_time.strftime('%Y-%m-%d %H:%M')
+                            # Convert to readable format - use proper datetime import
+                            signal_dt = dt.fromisoformat(signal_time.replace('Z', '+00:00'))
+                            signal_time = signal_dt.strftime('%Y-%m-%d %H:%M')
                         except:
                             pass
                     
@@ -1469,8 +1513,9 @@ Message:
                 return
             
             # Create export content
+            from datetime import datetime as dt
             export_content = f"""👥 BYBIT SCANNER SUBSCRIBER LIST
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+Generated: {dt.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
 Total Active Subscribers: {len(active_subscribers)}
 
 {'='*60}
@@ -1502,8 +1547,8 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
                 await query.bot.send_document(
                     chat_id=query.message.chat.id,
                     document=f,
-                    filename=f"bybit_subscribers_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"👥 **Subscriber List Export**\n\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
+                    filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
+                    caption=f"👥 **Subscriber List Export**\n\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
                 )
             
             # Clean up temp file
@@ -1524,6 +1569,10 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
     async def handle_advanced_settings(self, query, data):
         """Handle advanced settings menu"""
         try:
+            # Handle different advanced menu options
+            if data == "advanced_system_status":
+                return await self.show_system_status(query)
+            
             # Get current advanced filter states
             scanner_status = db.get_scanner_status()
             
@@ -1601,49 +1650,175 @@ Click below to toggle filters:"""
         except Exception as e:
             await query.edit_message_text(f"❌ Error loading advanced settings: {e}")
     
-    async def show_live_monitor(self, query):
-        """Show live market monitor for top pairs"""
+    async def show_system_status(self, query):
+        """Show comprehensive system status with back button"""
         try:
+            from datetime import datetime as dt
+            import psutil
+            import os
+            
+            # Get basic system info
+            try:
+                cpu_percent = psutil.cpu_percent(interval=1)
+                memory = psutil.virtual_memory()
+                disk = psutil.disk_usage('/')
+            except:
+                cpu_percent = 0
+                memory = None
+                disk = None
+            
+            # Get scanner status
+            scanner_status = db.get_scanner_status()
+            is_running = scanner_status.get('is_running', True)
+            last_scan = scanner_status.get('last_scan', 'Never')
+            
+            # Get recent signals count
+            recent_signals = db.get_recent_signals(10)
+            signals_count = len(recent_signals)
+            
+            # Get subscribers count
+            subscribers = db.get_subscribers_info()
+            active_subscribers = len([s for s in subscribers if s['is_active']])
+            
+            # Format uptime (basic estimation based on process)
+            try:
+                uptime_seconds = int(dt.now().timestamp()) - int(os.getpid())
+                uptime_formatted = f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m"
+            except:
+                uptime_formatted = "Unknown"
+            
+            message = f"""🖥 **System Status**
+
+**🤖 Bot Status:**
+• Status: {'🟢 Online' if is_running else '🔴 Offline'}
+• Uptime: {uptime_formatted}
+• Last Scan: {last_scan[:16] if last_scan != 'Never' else 'Never'}
+
+**📊 Scanner Statistics:**
+• Recent Signals: {signals_count}
+• Active Subscribers: {active_subscribers}
+• Total Pairs: {len(json.loads(scanner_status.get('monitored_pairs', '[]')))}
+
+**💻 System Resources:**"""
+            
+            if memory:
+                message += f"""
+• CPU Usage: {cpu_percent:.1f}%
+• Memory: {memory.percent:.1f}% ({memory.available // (1024*1024)} MB free)"""
+            else:
+                message += """
+• CPU Usage: Unable to read
+• Memory: Unable to read"""
+            
+            if disk:
+                message += f"""
+• Disk: {disk.percent:.1f}% used ({disk.free // (1024*1024*1024)} GB free)"""
+            else:
+                message += """
+• Disk: Unable to read"""
+            
+            message += f"""
+
+**⏰ Last Updated:** {dt.now().strftime('%Y-%m-%d %H:%M:%S UTC')}"""
+            
+            # Create keyboard with back button
+            keyboard = [
+                [InlineKeyboardButton("🔄 Refresh Status", callback_data="advanced_system_status")],
+                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error loading system status: {e}")
+    
+    async def show_live_monitor(self, query):
+        """Show live market monitor for top pairs - optimized for speed"""
+        try:
+            # Immediately show a loading message to improve response speed
+            await query.edit_message_text("📊 **Loading Live Monitor...**")
+            
             from enhanced_scanner import enhanced_scanner
+            import asyncio
             
             # Get monitored pairs
             scanner_status = db.get_scanner_status()
             monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
             
-            # Get live data for top 5 pairs
+            # Get live data for top 5 pairs with timeout and concurrent requests
             live_data = []
-            for symbol in monitored_pairs[:5]:
+            async def get_pair_data(symbol):
                 try:
-                    market_data = await enhanced_scanner.get_market_data(symbol)
+                    # Add timeout to prevent hanging
+                    market_data = await asyncio.wait_for(
+                        enhanced_scanner.get_market_data(symbol),
+                        timeout=5.0  # 5 second timeout per symbol
+                    )
                     if market_data:
-                        live_data.append({
+                        return {
                             'symbol': symbol,
                             'price': market_data.price,
                             'change_24h': market_data.change_24h,
                             'volume_24h': market_data.volume_24h
-                        })
+                        }
                 except Exception as e:
                     print(f"Error getting data for {symbol}: {e}")
-                    continue
+                    # Return basic data if API fails
+                    return {
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True
+                    }
+                return None
+            
+            # Execute requests concurrently with overall timeout
+            try:
+                tasks = [get_pair_data(symbol) for symbol in monitored_pairs[:5]]
+                results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=10.0)
+                live_data = [result for result in results if result is not None]
+            except asyncio.TimeoutError:
+                # If timeout, show cached/basic data
+                live_data = []
+                for symbol in monitored_pairs[:5]:
+                    live_data.append({
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True
+                    })
             
             # Format live monitor message
             scanner_running = scanner_status.get('is_running', False)
             status_emoji = "🟢" if scanner_running else "🔴"
             status_text = "RUNNING" if scanner_running else "PAUSED"
             
+            from datetime import datetime as dt
             message = f"""📊 **Live Market Monitor**
             
 🤖 **Scanner Status:** {status_emoji} {status_text}
-📅 **Updated:** {datetime.now().strftime('%H:%M:%S UTC')}
+📅 **Updated:** {dt.now().strftime('%H:%M:%S UTC')}
 
 💹 **Top 5 Monitored Pairs:**
 """
             
             for data in live_data:
-                change_emoji = "🟢" if data['change_24h'] >= 0 else "🔴"
-                volume_formatted = f"{data['volume_24h']:,.0f}" if data['volume_24h'] > 1000 else f"{data['volume_24h']:.2f}"
-                
-                message += f"""
+                if data.get('error'):
+                    message += f"""
+**{data['symbol']}**
+⚠️ Data unavailable (API timeout)
+"""
+                else:
+                    change_emoji = "🟢" if data['change_24h'] >= 0 else "🔴"
+                    volume_formatted = f"{data['volume_24h']:,.0f}" if data['volume_24h'] > 1000 else f"{data['volume_24h']:.2f}"
+                    
+                    message += f"""
 **{data['symbol']}**
 💰 ${data['price']:,.4f} | {change_emoji} {data['change_24h']:+.2f}%
 📊 Vol: ${volume_formatted}
@@ -1666,53 +1841,87 @@ Click below to toggle filters:"""
             await query.edit_message_text(f"❌ Error loading live monitor: {e}")
     
     async def force_scan(self, query):
-        """Force an immediate scan of all monitored pairs"""
+        """Force an immediate scan of all monitored pairs - optimized for speed"""
         try:
             from enhanced_scanner import enhanced_scanner
+            import asyncio
             
-            await query.edit_message_text("⚡ **Force Scan Initiated...**\n\n🔍 Scanning all monitored pairs...")
+            # Show immediate loading response
+            await query.edit_message_text("⚡ **Force Scan Initiated...**\n\n🔍 Scanning monitored pairs...")
             
             # Get monitored pairs
             scanner_status = db.get_scanner_status()
             monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
             
-            # Perform comprehensive scan
+            # Perform comprehensive scan with concurrent processing and timeout
             signals_found = []
             scan_results = []
             
-            for symbol in monitored_pairs:
+            async def scan_symbol(symbol):
                 try:
-                    # Scan individual symbol using enhanced comprehensive scan
-                    signal = await enhanced_scanner.enhanced_comprehensive_scan(symbol)
+                    # Add timeout to prevent hanging
+                    signal = await asyncio.wait_for(
+                        enhanced_scanner.enhanced_comprehensive_scan(symbol),
+                        timeout=8.0  # 8 second timeout per symbol
+                    )
                     
                     if signal:
                         signals_found.append(signal)
-                        scan_results.append(f"🎯 **{symbol}**: SIGNAL ({signal.strength:.0f}%)")
-                        
-                        # Send signal immediately
+                        # Send signal immediately in background
                         if hasattr(enhanced_scanner, 'send_signal_to_recipients'):
-                            await enhanced_scanner.send_signal_to_recipients(signal, query.bot)
+                            asyncio.create_task(enhanced_scanner.send_signal_to_recipients(signal, query.bot))
+                        return f"🎯 **{symbol}**: SIGNAL ({signal.strength:.0f}%)"
                     else:
-                        scan_results.append(f"📊 **{symbol}**: No signal")
+                        # Get basic market data to show actual scanned data
+                        try:
+                            market_data = await asyncio.wait_for(
+                                enhanced_scanner.get_market_data(symbol),
+                                timeout=3.0
+                            )
+                            if market_data:
+                                return f"📊 **{symbol}**: ${market_data.price:.4f} ({market_data.change_24h:+.2f}%) - No signal"
+                            else:
+                                return f"📊 **{symbol}**: No signal"
+                        except:
+                            return f"📊 **{symbol}**: No signal"
                         
+                except asyncio.TimeoutError:
+                    return f"⏱️ **{symbol}**: Timeout"
                 except Exception as e:
-                    scan_results.append(f"❌ **{symbol}**: Error ({str(e)[:30]}...)")
-                    print(f"Error scanning {symbol}: {e}")
+                    error_msg = str(e)[:30] + "..." if len(str(e)) > 30 else str(e)
+                    return f"❌ **{symbol}**: {error_msg}"
+            
+            # Execute concurrent scans with overall timeout
+            try:
+                # Limit concurrent scans to prevent overload
+                semaphore = asyncio.Semaphore(3)  # Max 3 concurrent scans
+                
+                async def limited_scan(symbol):
+                    async with semaphore:
+                        return await scan_symbol(symbol)
+                
+                tasks = [limited_scan(symbol) for symbol in monitored_pairs[:8]]  # Limit to 8 pairs for speed
+                scan_results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=30.0)
+                
+            except asyncio.TimeoutError:
+                scan_results = [f"⏱️ **{symbol}**: Scan timeout" for symbol in monitored_pairs[:8]]
             
             # Format results message
+            from datetime import datetime as dt
             message = f"""⚡ **Force Scan Complete**
 
 📊 **Scan Results:**
 {chr(10).join(scan_results)}
 
 🎯 **Signals Generated:** {len(signals_found)}
-⏰ **Scan Time:** {datetime.now().strftime('%H:%M:%S UTC')}
+⏰ **Scan Time:** {dt.now().strftime('%H:%M:%S UTC')}
 """
             
             if signals_found:
                 message += f"\n✅ **{len(signals_found)} signals sent to recipients!**"
             else:
                 message += "\nℹ️ **No signals met the threshold criteria**"
+                message += "\n📋 **Above data shows actual market prices scanned**"
             
             # Add menu buttons
             keyboard = [

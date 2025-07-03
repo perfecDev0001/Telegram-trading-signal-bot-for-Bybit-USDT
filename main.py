@@ -12,6 +12,7 @@ import sys
 import time
 import psutil
 import os
+import aiohttp
 from datetime import datetime
 from aiohttp import web
 import threading
@@ -27,8 +28,10 @@ class BotManager:
         self.bot_task = None
         self.scanner_task = None
         self.web_task = None
+        self.keepalive_task = None
         self.startup_time = time.time()
         self.telegram_bot = TelegramBot()
+        self.service_url = None  # Will be set after server starts
     
     def cleanup_processes(self):
         """Kill conflicting processes - optimized for speed"""
@@ -77,8 +80,16 @@ class BotManager:
                 print(f"🔑 Admin ID: {Config.ADMIN_ID}")
                 print(f"📱 Bot Token: {Config.BOT_TOKEN[:10]}***")
                 
-                # Keep the bot running
-                while self.running and self.telegram_bot.is_running():
+                # Keep the bot running with health monitoring
+                last_health_check = time.time()
+                while self.running:
+                    # Health check every 60 seconds
+                    if time.time() - last_health_check > 60:
+                        if not await self.telegram_bot.restart_if_needed():
+                            print("❌ Bot restart failed, stopping bot task")
+                            break
+                        last_health_check = time.time()
+                    
                     await asyncio.sleep(1)
             else:
                 print("❌ Failed to start Telegram bot")
@@ -93,15 +104,44 @@ class BotManager:
             # Use the new stop method
             await self.telegram_bot.stop_bot()
     
+    async def start_keepalive(self):
+        """Keep the service alive by self-pinging every 10 minutes"""
+        await asyncio.sleep(30)  # Wait for server to start
+        
+        while self.running:
+            try:
+                if self.service_url:
+                    # Self-ping to prevent sleep
+                    async with aiohttp.ClientSession() as session:
+                        try:
+                            async with session.get(f"{self.service_url}/health", timeout=10) as response:
+                                if response.status == 200:
+                                    print("🔄 Keep-alive ping successful")
+                                else:
+                                    print(f"⚠️ Keep-alive ping failed: {response.status}")
+                        except Exception as e:
+                            print(f"⚠️ Keep-alive ping error: {e}")
+                
+                # Wait 10 minutes before next ping
+                await asyncio.sleep(600)  # 10 minutes
+                
+            except Exception as e:
+                print(f"❌ Keep-alive task error: {e}")
+                await asyncio.sleep(60)  # Wait 1 minute on error
+
     async def start_health_server(self):
         """Start HTTP health check server for Render deployment"""
         async def health_check(request):
             """Health check endpoint"""
             uptime = time.time() - self.startup_time
             
-            # Get system status
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
+            # Get system status (non-blocking)
+            try:
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                memory = psutil.virtual_memory()
+            except:
+                cpu_percent = 0
+                memory = type('obj', (object,), {'percent': 0, 'available': 0})()
             
             status = {
                 "status": "healthy",
@@ -114,7 +154,8 @@ class BotManager:
                     "memory_percent": memory.percent,
                     "memory_available_mb": memory.available // 1024 // 1024
                 },
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "last_ping": datetime.now().isoformat()
             }
             
             return web.json_response(status)
@@ -160,9 +201,14 @@ class BotManager:
             site = web.TCPSite(runner, '0.0.0.0', port)
             await site.start()
             
+            # Set service URL for keep-alive
+            service_name = os.environ.get('RENDER_SERVICE_NAME', 'bybit-scanner-bot')
+            self.service_url = f"https://{service_name}.onrender.com"
+            
             print(f"✅ Health check server running on http://0.0.0.0:{port}")
             print(f"   - Health check: http://0.0.0.0:{port}/health")
             print(f"   - Status: http://0.0.0.0:{port}/status")
+            print(f"   - Service URL: {self.service_url}")
             
             # Keep the server running
             while self.running:
@@ -189,16 +235,23 @@ class BotManager:
             print("✅ Scanner status set to RUNNING")
             
             # Run the enhanced scanner with bot instance for sending signals
-            try:
-                # Run the enhanced scanner with timeout protection
-                await asyncio.wait_for(
-                    enhanced_scanner.run_enhanced_scanner(self.telegram_bot.application.bot),
-                    timeout=3600  # 1 hour timeout (effectively no timeout for normal operation)
-                )
-            except asyncio.TimeoutError:
-                print("⏱️ Scanner operation timed out")
-            except Exception as e:
-                print(f"❌ Scanner operation error: {e}")
+            while self.running:
+                try:
+                    # Run scanner for shorter periods with restarts
+                    await asyncio.wait_for(
+                        enhanced_scanner.run_enhanced_scanner(self.telegram_bot.application.bot),
+                        timeout=300  # 5 minute timeout, then restart
+                    )
+                except asyncio.TimeoutError:
+                    print("⏱️ Scanner cycle completed, restarting...")
+                    continue
+                except asyncio.CancelledError:
+                    print("🛑 Scanner cancelled")
+                    break
+                except Exception as e:
+                    print(f"❌ Scanner error: {e}, restarting in 30 seconds...")
+                    await asyncio.sleep(30)
+                    continue
             
         except Exception as e:
             print(f"❌ Enhanced Scanner error: {e}")
@@ -236,16 +289,17 @@ class BotManager:
         signal.signal(signal.SIGTERM, signal_handler)
         
         try:
-            # Start bot, scanner, and health server concurrently
+            # Start bot, scanner, health server, and keep-alive concurrently
             self.bot_task = asyncio.create_task(self.start_bot())
             self.scanner_task = asyncio.create_task(self.start_scanner())
             self.web_task = asyncio.create_task(self.start_health_server())
+            self.keepalive_task = asyncio.create_task(self.start_keepalive())
             
             print("🚀 All services started. Waiting for completion...")
             
             # Wait for any task to complete or fail
             done, pending = await asyncio.wait(
-                [self.bot_task, self.scanner_task, self.web_task],
+                [self.bot_task, self.scanner_task, self.web_task, self.keepalive_task],
                 return_when=asyncio.FIRST_EXCEPTION
             )
             
@@ -270,6 +324,8 @@ class BotManager:
                 self.bot_task.cancel()
             if hasattr(self, 'scanner_task') and self.scanner_task and not self.scanner_task.done():
                 self.scanner_task.cancel()
+            if hasattr(self, 'keepalive_task') and self.keepalive_task and not self.keepalive_task.done():
+                self.keepalive_task.cancel()
 
 def check_configuration():
     """Check if the bot is properly configured"""
