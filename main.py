@@ -351,8 +351,51 @@ def check_configuration():
     
     return True
 
+async def test_mode():
+    """Run bot in test mode to verify functionality"""
+    print("🧪 Running in TEST MODE")
+    print("🔍 Testing API connectivity...")
+    
+    from enhanced_scanner import enhanced_scanner
+    
+    # Test API connectivity
+    api_test = await enhanced_scanner.test_api_connectivity()
+    if api_test:
+        print("✅ API connection successful!")
+    else:
+        print("❌ API connection failed!")
+    
+    # Test bot initialization
+    print("🤖 Testing bot initialization...")
+    bot = TelegramBot()
+    bot_started = await bot.start_bot()
+    
+    if bot_started:
+        print("✅ Bot initialization successful!")
+        print("🔍 Testing force scan functionality...")
+        
+        # Test a single scan
+        try:
+            signal_count = await enhanced_scanner.run_single_scan(bot.application.bot)
+            print(f"✅ Force scan completed: {signal_count} signals generated")
+        except Exception as e:
+            print(f"❌ Force scan failed: {e}")
+        
+        # Stop the bot
+        await bot.stop_bot()
+    else:
+        print("❌ Bot initialization failed!")
+    
+    print("🧪 Test mode completed")
+
 def main():
     """Main function"""
+    # Check for test mode
+    if "--test" in sys.argv:
+        print("🧪 Starting in test mode...")
+        asyncio.run(test_mode())
+        return
+    
     print("🔧 Checking configuration...")
     
     if not check_configuration():

@@ -1706,16 +1706,21 @@ Message:
             
             # Send file to user
             with open(temp_file, 'rb') as f:
-                # Send document with only Back to Main Menu button
-                keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.message.reply_document(
+                # Create a new message with the document instead of editing the current one
+                message = await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}",
-                    reply_markup=reply_markup
+                    caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
                 )
+                
+                # Add buttons to the new message with the document
+                keyboard = [
+                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")],
+                    [InlineKeyboardButton("🔙 Back to Signal Logs", callback_data="signals_log")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await message.edit_reply_markup(reply_markup=reply_markup)
             
             # Clean up temp file
             os.unlink(temp_file)
@@ -1773,16 +1778,21 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
             
             # Send file to user
             with open(temp_file, 'rb') as f:
-                # Send document with Back to Main Menu button
-                keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.message.reply_document(
+                # Create a new message with the document instead of editing the current one
+                message = await query.message.reply_document(
                     document=f,
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
-                    caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}",
-                    reply_markup=reply_markup
+                    caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
                 )
+                
+                # Add buttons to the new message with the document
+                keyboard = [
+                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")],
+                    [InlineKeyboardButton("🔙 Back to Subscribers", callback_data="manage_subscribers")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await message.edit_reply_markup(reply_markup=reply_markup)
             
             # Clean up temp file
             os.unlink(temp_file)
@@ -1966,24 +1976,30 @@ Click below to toggle filters:"""
             await query.edit_message_text(f"❌ Error loading system status: {e}")
     
     async def show_live_monitor(self, query):
-        """Show live market monitor for top pairs - optimized for speed"""
+        """Show live market monitor for top pairs - optimized for speed and reliability"""
         try:
             # Immediately show a loading message to improve response speed
-            await query.edit_message_text("📊 **Loading Live Monitor...**\n⚠️ Please do not take any action until information is received.")
+            await query.edit_message_text("📊 **Loading Live Monitor...**\n⚠️ Please wait while data is being fetched...")
             
             from enhanced_scanner import enhanced_scanner
             import asyncio
             
             # Get monitored pairs
             scanner_status = db.get_scanner_status()
-            monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
+            monitored_pairs_str = scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]')
             
-            # Test API connectivity first
+            try:
+                monitored_pairs = json.loads(monitored_pairs_str)
+            except json.JSONDecodeError:
+                # Fallback to default pairs if JSON parsing fails
+                monitored_pairs = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
+            
+            # Test API connectivity first with shorter timeout
             api_test_passed = False
             try:
                 test_result = await asyncio.wait_for(
                     enhanced_scanner.test_api_connectivity(),
-                    timeout=5.0
+                    timeout=3.0  # Reduced timeout for faster response
                 )
                 api_test_passed = test_result
             except Exception as e:
@@ -1996,14 +2012,15 @@ Click below to toggle filters:"""
                     # Add timeout to prevent hanging
                     market_data = await asyncio.wait_for(
                         enhanced_scanner.get_market_data(symbol),
-                        timeout=8.0  # 8 second timeout per symbol
+                        timeout=5.0  # Reduced timeout for faster response
                     )
                     if market_data:
                         return {
                             'symbol': symbol,
                             'price': market_data.price,
                             'change_24h': market_data.change_24h,
-                            'volume_24h': market_data.volume_24h
+                            'volume_24h': market_data.volume_24h,
+                            'error': False
                         }
                 except asyncio.TimeoutError:
                     print(f"Timeout getting data for {symbol}")
@@ -2024,30 +2041,45 @@ Click below to toggle filters:"""
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
                         'error': True,
-                        'error_msg': f'API Error: {str(e)[:50]}'
+                        'error_msg': f'API Error: {str(e)[:30]}'
                     }
                 return None
             
             # Execute requests concurrently with overall timeout
             try:
-                tasks = [get_pair_data(symbol) for symbol in monitored_pairs[:5]]
-                results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=15.0)
+                # Use semaphore to limit concurrent requests
+                semaphore = asyncio.Semaphore(3)  # Max 3 concurrent requests
+                
+                async def limited_request(symbol):
+                    async with semaphore:
+                        return await get_pair_data(symbol)
+                
+                # Limit to top 5 pairs for speed
+                top_pairs = monitored_pairs[:5]
+                tasks = [limited_request(symbol) for symbol in top_pairs]
+                
+                # Use wait_for to set an overall timeout
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), 
+                    timeout=10.0  # Reduced overall timeout
+                )
+                
                 live_data = []
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
                         live_data.append({
-                            'symbol': monitored_pairs[i],
+                            'symbol': top_pairs[i],
                             'price': 0.0,
                             'change_24h': 0.0,
                             'volume_24h': 0.0,
                             'error': True,
-                            'error_msg': str(result)
+                            'error_msg': f"Error: {str(result)[:30]}"
                         })
                     elif result is not None:
                         live_data.append(result)
                     else:
                         live_data.append({
-                            'symbol': monitored_pairs[i],
+                            'symbol': top_pairs[i],
                             'price': 0.0,
                             'change_24h': 0.0,
                             'volume_24h': 0.0,
@@ -2055,7 +2087,7 @@ Click below to toggle filters:"""
                             'error_msg': 'No data returned'
                         })
             except asyncio.TimeoutError:
-                # If timeout, show cached/basic data
+                # If timeout, show basic data
                 live_data = []
                 for symbol in monitored_pairs[:5]:
                     live_data.append({
@@ -2064,7 +2096,7 @@ Click below to toggle filters:"""
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
                         'error': True,
-                        'error_msg': 'API timeout'
+                        'error_msg': 'Request timeout'
                     })
             
             # Format live monitor message
@@ -2085,11 +2117,14 @@ Click below to toggle filters:"""
 💹 **Top 5 Monitored Pairs:**
 """
             
+            # Count successful data fetches
+            success_count = sum(1 for data in live_data if not data.get('error', False))
+            
             for data in live_data:
                 if data.get('error'):
                     error_msg = data.get('error_msg', 'API timeout')
                     if 'timeout' in error_msg.lower():
-                        error_msg = "Data unavailable (API timeout)"
+                        error_msg = "Data unavailable (timeout)"
                     message += f"""
 **{data['symbol']}**
 ⚠️ {error_msg}
@@ -2104,9 +2139,14 @@ Click below to toggle filters:"""
 📊 Vol: ${volume_formatted}
 """
             
-            # Add refresh button
+            # Add status message if some data failed
+            if success_count < len(live_data):
+                message += f"\n⚠️ **Note:** {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
+            
+            # Add refresh button and force scan option
             keyboard = [
                 [InlineKeyboardButton("🔄 Refresh", callback_data="live_monitor")],
+                [InlineKeyboardButton("⚡ Force Scan", callback_data="force_scan")],
                 [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2118,7 +2158,24 @@ Click below to toggle filters:"""
             )
             
         except Exception as e:
-            await query.edit_message_text(f"❌ Error loading live monitor: {e}")
+            # Provide a more helpful error message
+            error_message = f"""❌ **Error loading live monitor**
+
+**Error details:** {str(e)[:100]}
+
+Please try again or check the API connection.
+"""
+            keyboard = [
+                [InlineKeyboardButton("🔄 Try Again", callback_data="live_monitor")],
+                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                error_message,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
     
     async def force_scan(self, query):
         """Force an immediate scan of all monitored pairs - optimized for speed"""
@@ -2141,15 +2198,22 @@ Click below to toggle filters:"""
                 try:
                     # Add timeout to prevent hanging
                     signal = await asyncio.wait_for(
-                        enhanced_scanner.enhanced_comprehensive_scan(symbol),
+                        enhanced_scanner.scan_symbol_comprehensive(symbol),
                         timeout=8.0  # 8 second timeout per symbol
                     )
                     
                     if signal:
                         signals_found.append(signal)
                         # Send signal immediately in background
-                        if hasattr(enhanced_scanner, 'send_signal_to_recipients'):
+                        try:
                             asyncio.create_task(enhanced_scanner.send_signal_to_recipients(signal, query.bot))
+                        except Exception as send_error:
+                            print(f"Error sending signal: {send_error}")
+                            # Try alternative method if the first one fails
+                            try:
+                                asyncio.create_task(enhanced_scanner.send_enhanced_signal(query.bot, signal))
+                            except Exception as alt_error:
+                                print(f"Alternative signal sending also failed: {alt_error}")
                         return f"🎯 **{symbol}**: SIGNAL ({signal.strength:.0f}%)"
                     else:
                         # Get basic market data to show actual scanned data
