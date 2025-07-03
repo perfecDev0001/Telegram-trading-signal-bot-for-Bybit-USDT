@@ -1715,6 +1715,9 @@ Message:
                     caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
                 )
             
+            # Wait for the file to be processed and displayed (2 seconds delay)
+            await asyncio.sleep(2)
+            
             # Clean up temp file
             os.unlink(temp_file)
             
@@ -1775,6 +1778,9 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
                 )
+            
+            # Wait for the file to be processed and displayed (2 seconds delay)
+            await asyncio.sleep(2)
             
             # Clean up temp file
             os.unlink(temp_file)
