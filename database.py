@@ -325,6 +325,21 @@ class Database:
         """Log a signal (alias for add_signal for compatibility)"""
         return self.add_signal(symbol, signal_type, price, change_percent, volume, message)
     
+    def get_signals_log(self, limit: int = 100) -> List[Dict]:
+        """Get signals log with specified limit"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM signals_log 
+                    ORDER BY timestamp DESC LIMIT ?
+                ''', (limit,))
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"Error getting signals log: {e}")
+            return []
+    
     def get_system_stats(self) -> Dict:
         """Get comprehensive system statistics"""
         try:

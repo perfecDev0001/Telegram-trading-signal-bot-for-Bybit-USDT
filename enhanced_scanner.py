@@ -98,10 +98,12 @@ class EnhancedBybitScanner:
             # Authenticated API - higher rate limits (20 requests per second)
             self.min_request_interval = 0.05  # 50ms between requests (20 req/sec)
             self.max_requests_per_window = 20  # Max 20 requests per 1-second window
+            print("✅ Using authenticated API with higher rate limits")
         else:
             # Public API - more conservative rate limiting
             self.min_request_interval = 0.25  # 250ms between requests (4 req/sec)
             self.max_requests_per_window = 10  # Max 10 requests per 1-second window
+            print("⚠️ Using public API with limited rate limits - consider adding API credentials")
         
         self.api_errors = 0  # Track API errors for adaptive rate limiting
         self.request_count = 0
@@ -151,12 +153,13 @@ class EnhancedBybitScanner:
         
         # For public API, use a more conservative timeout
         if not self.api_secret:
-            timeout = min(timeout, 10)  # More conservative timeout for public API
+            timeout = min(timeout, 15)  # More conservative timeout for public API
+            print(f"⚠️ Using public API (no credentials) - timeout set to {timeout}s")
         
         while retries < max_retries:
             try:
                 # Use a more conservative timeout configuration for public API
-                timeout_config = aiohttp.ClientTimeout(total=timeout, connect=5, sock_read=5)
+                timeout_config = aiohttp.ClientTimeout(total=timeout, connect=8, sock_read=8)
                 
                 # Use a simpler request approach with fewer options
                 async with aiohttp.ClientSession(timeout=timeout_config) as session:
@@ -294,6 +297,12 @@ class EnhancedBybitScanner:
         await self._rate_limit()
         
         try:
+            # Check if we have API credentials
+            if not self.api_key or not self.api_secret:
+                print(f"⚠️ Warning: No API credentials for {symbol}. Using public API with limited rate limits.")
+                print(f"⚠️ For better performance, add BYBIT_API_KEY and BYBIT_SECRET to your .env file")
+                print(f"⚠️ Get free API keys at: https://www.bybit.com/app/user/api-management")
+            
             url = f"{self.base_url}/v5/market/tickers"
             params = {
                 'category': 'linear',  # Using perpetual futures
@@ -332,14 +341,23 @@ class EnhancedBybitScanner:
                         print(f"❌ Error parsing ticker data for {symbol}: {e}")
                         self.api_errors += 1
                 else:
-                    print(f"❌ API returned error for {symbol}: {data.get('retMsg', 'Unknown error')}")
+                    error_msg = data.get('retMsg', 'Unknown error')
+                    print(f"❌ API returned error for {symbol}: {error_msg}")
+                    if 'rate' in error_msg.lower() or 'limit' in error_msg.lower():
+                        print(f"⚠️ Rate limit hit for {symbol}. Consider adding API credentials for higher limits.")
                     self.api_errors += 1
             else:
-                print(f"❌ HTTP error for {symbol}: {response.status_code if response else 'No response'}")
+                status_code = response.status_code if response else 'No response'
+                print(f"❌ HTTP error for {symbol}: {status_code}")
+                if response and response.status_code == 429:
+                    print(f"⚠️ Rate limit exceeded for {symbol}. Consider adding API credentials.")
                 self.api_errors += 1
             return None
         except Exception as e:
-            print(f"❌ Error fetching market data for {symbol}: {e}")
+            error_msg = str(e)
+            print(f"❌ Error fetching market data for {symbol}: {error_msg}")
+            if 'timeout' in error_msg.lower() or 'connection' in error_msg.lower():
+                print(f"⚠️ Connection/timeout issue for {symbol}. This may be due to rate limiting without API credentials.")
             self.api_errors += 1
             return None
     
@@ -947,18 +965,36 @@ class EnhancedBybitScanner:
             
             # Add default recipients (from config)
             from config import Config
-            hardcoded_recipients = [
-                Config.ADMIN_ID,  # Admin from environment variable
-                Config.SUBSCRIBER_ID,  # Default subscriber
-                Config.CHANNEL_ID  # Default channel
-            ]
             
-            # Combine all recipients (remove duplicates)
-            all_recipients = list(set(active_subscribers + hardcoded_recipients))
+            # Filter out bot accounts and validate recipients
+            valid_recipients = set()
+                  # Add admin ID (always valid)
+            if Config.ADMIN_ID and Config.ADMIN_ID != 0:
+                valid_recipients.add(Config.ADMIN_ID)
+            
+            # Add channel ID if valid
+            if Config.CHANNEL_ID and Config.CHANNEL_ID != 0:
+                valid_recipients.add(Config.CHANNEL_ID)
+      
+            
+            # Add subscribers (filter out bots and exclude SUBSCRIBER_ID if it's a bot)
+            for subscriber_id in active_subscribers:
+                # Skip if it's the hardcoded SUBSCRIBER_ID and might be a bot
+                if subscriber_id == Config.SUBSCRIBER_ID:
+                    # Check if it's a bot
+                    if await self._is_valid_recipient(bot, subscriber_id):
+                        valid_recipients.add(subscriber_id)
+                    else:
+                        print(f"⚠️ Skipping SUBSCRIBER_ID {subscriber_id} - appears to be a bot")
+                        continue
+                else:
+                    # For other subscribers, validate normally
+                    if await self._is_valid_recipient(bot, subscriber_id):
+                        valid_recipients.add(subscriber_id)
             
             sent_count = 0
             
-            for recipient in all_recipients:
+            for recipient in valid_recipients:
                 try:
                     await bot.send_message(
                         chat_id=recipient,
@@ -990,7 +1026,7 @@ class EnhancedBybitScanner:
     async def test_api_connectivity(self) -> bool:
         """Test API connectivity for public endpoints"""
         try:
-            print("🔍 Testing Bybit public API connectivity...")
+            print("🔍 Testing Bybit API connectivity...")
             
             # Test basic connection with a simple ticker request
             url = f"{self.base_url}/v5/market/tickers"
@@ -998,6 +1034,15 @@ class EnhancedBybitScanner:
                 'category': 'linear',
                 'symbol': 'BTCUSDT'
             }
+            
+            # Check if we have API credentials
+            if not self.api_key or not self.api_secret:
+                print("⚠️ WARNING: No API credentials found! Using public API with limited rate limits.")
+                print("⚠️ This may cause timeout issues. Please add BYBIT_API_KEY and BYBIT_SECRET to your .env file.")
+                print("⚠️ You can get free API keys from: https://www.bybit.com/app/user/api-management")
+                print("⚠️ Public API has stricter rate limits which may cause 'Data unavailable (timeout)' errors")
+            else:
+                print("✅ API credentials found - using authenticated requests")
             
             headers = self._get_auth_headers()
             response = await self._make_api_request(url, params, headers)
@@ -1025,6 +1070,63 @@ class EnhancedBybitScanner:
         except Exception as e:
             print(f"❌ API connectivity test failed: {e}")
             return False
+    
+    def get_api_setup_instructions(self) -> str:
+        """Get instructions for setting up API credentials"""
+        return """
+🔧 **API Setup Instructions**
+
+To fix timeout issues and improve performance:
+
+1. **Get Free API Keys:**
+   - Visit: https://www.bybit.com/app/user/api-management
+   - Create a new API key (read-only permissions are sufficient)
+
+2. **Add to your .env file:**
+   ```
+   BYBIT_API_KEY=your_api_key_here
+   BYBIT_SECRET=your_api_secret_here
+   ```
+
+3. **Restart the bot** after adding credentials
+
+**Benefits:**
+✅ Higher rate limits (20 req/sec vs 4 req/sec)
+✅ Fewer timeouts and "Data unavailable" errors
+✅ More reliable Live Monitor and Force Scan
+✅ Better signal detection accuracy
+"""
+    
+    async def get_api_status(self) -> dict:
+        """Get current API status information"""
+        try:
+            # Test connectivity
+            is_connected = await self.test_api_connectivity()
+            
+            # Check credentials
+            has_credentials = bool(self.api_key and self.api_secret)
+            
+            status = {
+                'connected': is_connected,
+                'has_credentials': has_credentials,
+                'api_errors': self.api_errors,
+                'rate_limit_info': {
+                    'requests_per_second': 1 / self.min_request_interval,
+                    'max_per_window': self.max_requests_per_window
+                },
+                'status_text': 'Connected' if is_connected else 'Issues'
+            }
+            
+            return status
+            
+        except Exception as e:
+            print(f"❌ Error getting API status: {e}")
+            return {
+                'connected': False,
+                'has_credentials': False,
+                'api_errors': self.api_errors,
+                'status_text': 'Issues'
+            }
     
     async def run_enhanced_scanner(self, bot_instance=None):
         """Main enhanced scanner loop"""
@@ -1606,18 +1708,38 @@ class EnhancedBybitScanner:
             # Get IDs from config
             from config import Config
             admin_id = Config.ADMIN_ID
-            special_user = Config.SUBSCRIBER_ID
             channel_id = Config.CHANNEL_ID
             
             # Get all subscribers
             subscribers = db.get_active_subscribers()
-            all_recipients = set(subscribers + [admin_id, special_user])
+            
+            # Filter out bot accounts and validate recipients
+            valid_recipients = set()
+            
+            # Add admin ID (always valid)
+            if admin_id and admin_id != 0:
+                valid_recipients.add(admin_id)
+            
+            # Add subscribers (filter out bots and exclude SUBSCRIBER_ID if it's a bot)
+            for subscriber_id in subscribers:
+                # Skip if it's the hardcoded SUBSCRIBER_ID and might be a bot
+                if subscriber_id == Config.SUBSCRIBER_ID:
+                    # Check if it's a bot
+                    if await self._is_valid_recipient(bot_instance, subscriber_id):
+                        valid_recipients.add(subscriber_id)
+                    else:
+                        print(f"⚠️ Skipping SUBSCRIBER_ID {subscriber_id} - appears to be a bot")
+                        continue
+                else:
+                    # For other subscribers, validate normally
+                    if await self._is_valid_recipient(bot_instance, subscriber_id):
+                        valid_recipients.add(subscriber_id)
             
             message = self.format_signal_message(signal)
             
-            # Send to all recipients
+            # Send to all valid recipients
             sent_count = 0
-            for recipient in all_recipients:
+            for recipient in valid_recipients:
                 try:
                     await bot_instance.send_message(
                         chat_id=recipient,
@@ -1625,24 +1747,50 @@ class EnhancedBybitScanner:
                         parse_mode='Markdown'
                     )
                     sent_count += 1
+                    print(f"✅ Enhanced signal sent to {recipient}")
                 except Exception as e:
                     print(f"❌ Failed to send enhanced signal to {recipient}: {e}")
+                    continue
             
-            # Send to channel
-            try:
-                await bot_instance.send_message(
-                    chat_id=channel_id,
-                    text=message,
-                    parse_mode='Markdown'
-                )
-                sent_count += 1
-            except Exception as e:
-                print(f"❌ Failed to send to channel: {e}")
+            # Send to channel if valid
+            if channel_id and channel_id != 0:
+                try:
+                    await bot_instance.send_message(
+                        chat_id=channel_id,
+                        text=message,
+                        parse_mode='Markdown'
+                    )
+                    sent_count += 1
+                    print(f"✅ Enhanced signal sent to channel {channel_id}")
+                except Exception as e:
+                    print(f"❌ Failed to send to channel: {e}")
             
             print(f"📤 Enhanced signal sent to {sent_count} recipients")
             
         except Exception as e:
             print(f"❌ Error sending enhanced signal: {e}")
+    
+    async def _is_valid_recipient(self, bot_instance, user_id: int) -> bool:
+        """Check if recipient is valid (not a bot)"""
+        try:
+            # Try to get chat info
+            chat = await bot_instance.get_chat(user_id)
+            
+            # Check if it's a bot
+            if hasattr(chat, 'is_bot') and chat.is_bot:
+                print(f"⚠️ Skipping bot recipient: {user_id}")
+                return False
+            
+            # Check if it's a valid user or channel
+            if chat.type in ['private', 'channel', 'supergroup']:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Could not validate recipient {user_id}: {e}")
+            # If we can't validate, assume it's valid but log the issue
+            return True
 
     async def run_single_scan(self, bot_instance=None):
         """Run a single scan cycle"""

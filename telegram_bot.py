@@ -36,7 +36,7 @@ class TelegramBot:
         self._running = False
     
     async def start_bot(self):
-        """Start the bot with proper error handling and conflict resolution"""
+        """Start the bot with proper error handling"""
         try:
             print("🤖 Initializing bot...")
             await self.application.initialize()
@@ -50,55 +50,25 @@ class TelegramBot:
                 print(f"❌ Bot connection test failed: {e}")
                 return False
             
-            # Clear any existing webhooks that might conflict with polling
-            print("🧹 Clearing any existing webhooks...")
-            try:
-                await self.application.bot.delete_webhook(drop_pending_updates=True)
-                print("✅ Webhooks cleared")
-            except Exception as e:
-                print(f"⚠️ Warning: Could not clear webhooks: {e}")
-            
             print("🚀 Starting bot application...")
             await self.application.start()
             
-            # Add retry logic for polling conflicts
-            max_retries = 3
-            retry_delay = 10
+            print("📡 Starting polling...")
+            await self.application.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+                timeout=30,  # 30 second timeout for getting updates
+                read_timeout=30,  # 30 second read timeout
+                write_timeout=30,  # 30 second write timeout
+                connect_timeout=30,  # 30 second connection timeout
+                pool_timeout=30  # 30 second pool timeout
+            )
             
-            for attempt in range(max_retries):
-                try:
-                    print(f"📡 Starting polling (attempt {attempt + 1}/{max_retries})...")
-                    await self.application.updater.start_polling(
-                        drop_pending_updates=True,
-                        allowed_updates=["message", "callback_query"],
-                        timeout=30,  # 30 second timeout for getting updates
-                        read_timeout=30,  # 30 second read timeout
-                        write_timeout=30,  # 30 second write timeout
-                        connect_timeout=30,  # 30 second connection timeout
-                        pool_timeout=30  # 30 second pool timeout
-                    )
-                    
-                    self._running = True
-                    print("✅ Bot is running and polling for messages!")
-                    print(f"🔑 Admin ID: {Config.ADMIN_ID}")
-                    print("📱 Send /start to test the bot")
-                    return True
-                    
-                except Exception as e:
-                    if "409" in str(e) or "Conflict" in str(e):
-                        print(f"⚠️ Polling conflict detected (attempt {attempt + 1}): {e}")
-                        if attempt < max_retries - 1:
-                            print(f"⏳ Waiting {retry_delay} seconds before retry...")
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                            continue
-                        else:
-                            print("❌ Max retries reached for polling conflicts")
-                            return False
-                    else:
-                        raise e
-            
-            return False
+            self._running = True
+            print("✅ Bot is running and polling for messages!")
+            print(f"🔑 Admin ID: {Config.ADMIN_ID}")
+            print("📱 Send /start to test the bot")
+            return True
             
         except Exception as e:
             print(f"❌ Failed to start bot: {e}")
@@ -420,6 +390,8 @@ class TelegramBot:
             await self.show_help_menu(query)
         elif data == "restart_session":
             await self.restart_session(query)
+        elif data == "api_setup":
+            await self.show_api_setup(query)
     
     async def show_manage_subscribers(self, query):
         """Show subscriber management menu"""
@@ -452,7 +424,7 @@ class TelegramBot:
                 InlineKeyboardButton("👁️ VIEW ALL", callback_data="subscribers_view_all"),
                 InlineKeyboardButton("📄 EXPORT LIST", callback_data="subscribers_export")
             ],
-            [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]
+            [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
         ]
         
         await query.edit_message_text(
@@ -762,10 +734,14 @@ Choose an option from the menu below:
                 InlineKeyboardButton("⚙️ SETTINGS", callback_data="settings"),
                 InlineKeyboardButton("⚡ FORCE SCAN", callback_data="force_scan")
             ],
-            # Row 3b: Test Signal (New Feature)
+            # Row 3b: Test Signal | Export Logs
             [
                 InlineKeyboardButton("🧪 TEST SIGNAL", callback_data="test_signal"),
                 InlineKeyboardButton("📥 EXPORT LOGS", callback_data="export_logs")
+            ],
+            # Row 3c: API Setup
+            [
+                InlineKeyboardButton("🔧 API SETUP", callback_data="api_setup")
             ],
             # Row 4: Logout | Pause Scanner
             [
@@ -2014,22 +1990,21 @@ Click below to toggle filters:"""
                 # Fallback to default pairs if JSON parsing fails
                 monitored_pairs = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
             
-            # Test public API connectivity first with appropriate timeout
-            api_test_passed = False
+            # Get API status instead of just testing connectivity
+            api_status = None
             try:
-                print("⚡ Testing public API connectivity...")
-                test_result = await asyncio.wait_for(
-                    enhanced_scanner.test_api_connectivity(),
+                print("⚡ Checking API status...")
+                api_status = await asyncio.wait_for(
+                    enhanced_scanner.get_api_status(),
                     timeout=8.0  # Longer timeout for public API
                 )
-                api_test_passed = test_result
-                if api_test_passed:
-                    print("✅ Public API connectivity successful")
+                if api_status['connected']:
+                    print("✅ API connectivity successful")
                 else:
-                    print("❌ Public API connectivity failed")
+                    print("❌ API connectivity failed")
             except Exception as e:
-                print(f"❌ Public API connectivity test failed: {e}")
-                api_test_passed = False
+                print(f"❌ API status check failed: {e}")
+                api_status = {'connected': False, 'has_credentials': False, 'status_text': 'Issues'}
             
             # Get live data for top 5 pairs with timeout and sequential requests for public API
             live_data = []
@@ -2134,8 +2109,12 @@ Click below to toggle filters:"""
             status_text = "RUNNING" if scanner_running else "PAUSED"
             
             from datetime import datetime as dt
-            api_status_emoji = "🟢" if api_test_passed else "🔴"
-            api_status_text = "Connected" if api_test_passed else "Issues"
+            api_status_emoji = "🟢" if api_status['connected'] else "🔴"
+            api_status_text = api_status['status_text']
+            
+            # Add API credential info
+            if not api_status['has_credentials']:
+                api_status_text += " (No API keys)"
             
             message = f"""📊 **LIVE MARKET MONITOR**
             
@@ -2171,6 +2150,10 @@ Click below to toggle filters:"""
             # Add status message if some data failed
             if success_count < len(live_data):
                 message += f"\n⚠️ **Note:** {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
+                
+                # Add API credential suggestion if no credentials
+                if not api_status['has_credentials']:
+                    message += f"\n\n💡 **Tip:** Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better performance and fewer timeouts."
             
             # Add refresh button and force scan option
             keyboard = [
@@ -2271,8 +2254,11 @@ Please try again or check the API connection.
                                 return f"📊 **{symbol}**: ${market_data.price:.4f} ({change:+.2f}%) - {reason}"
                             else:
                                 return f"📊 **{symbol}**: No data available"
-                        except:
-                            return f"📊 **{symbol}**: Data fetch failed"
+                        except Exception as data_e:
+                            if 'timeout' in str(data_e).lower():
+                                return f"📊 **{symbol}**: Data fetch failed (timeout)"
+                            else:
+                                return f"📊 **{symbol}**: Data fetch failed ({str(data_e)[:20]}...)"
                         
                 except asyncio.TimeoutError:
                     return f"⏱️ **{symbol}**: Timeout"
@@ -2318,6 +2304,12 @@ Please try again or check the API connection.
                 message += f"\n📊 **Current Thresholds:** Pump ≥{pump_threshold}%, Dump ≤{dump_threshold}%"
                 message += f"\n🔍 **Signal Requirements:** ≥70% strength + multiple filters"
                 message += f"\n📋 **Above data shows actual market prices scanned**"
+                
+                # Check if there were data fetch failures
+                data_failures = sum(1 for result in scan_results if 'Data fetch failed' in result)
+                if data_failures > 0:
+                    message += f"\n\n⚠️ **{data_failures} data fetch failures detected**"
+                    message += f"\n💡 **Tip:** Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better reliability"
             
             # Add menu buttons
             keyboard = [
@@ -2335,6 +2327,40 @@ Please try again or check the API connection.
             
         except Exception as e:
             await query.edit_message_text(f"❌ Force scan failed: {e}")
+    
+    async def show_api_setup(self, query):
+        """Show API setup instructions"""
+        try:
+            from enhanced_scanner import enhanced_scanner
+            
+            # Get current API status
+            api_status = await enhanced_scanner.get_api_status()
+            
+            if api_status['has_credentials']:
+                status_message = "✅ **API Credentials: CONFIGURED**\n\n"
+                status_message += f"🔗 **Connection Status:** {'Connected' if api_status['connected'] else 'Issues'}\n"
+                status_message += f"⚡ **Rate Limit:** {api_status['rate_limit_info']['requests_per_second']:.0f} requests/second\n\n"
+                status_message += "Your API credentials are properly configured!"
+            else:
+                status_message = "❌ **API Credentials: NOT CONFIGURED**\n\n"
+                status_message += "⚠️ **Current Status:** Using public API with limited rate limits\n"
+                status_message += "⚠️ **Issues:** Frequent timeouts and 'Data unavailable' errors\n\n"
+                status_message += enhanced_scanner.get_api_setup_instructions()
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 CHECK STATUS", callback_data="api_setup")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                status_message,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error loading API setup: {e}")
     
     # Placeholder methods for conversation handlers
     async def change_threshold_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2671,16 +2697,16 @@ Please try again or check the API connection.
             test_message = f"""
 🧪 <b>TEST SIGNAL</b>
 
-#{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20)
+🔥 #{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20) 🔥
 
 📊 Entry - ${test_signal_data['entry_price']:.2f}
 🎯 Strength: {test_signal_data['strength']:.0f}%
 
 Take-Profit:
-TP1 – ${test_signal_data['tp_targets'][0]:.2f} (40%)
-TP2 – ${test_signal_data['tp_targets'][1]:.2f} (60%)
-TP3 – ${test_signal_data['tp_targets'][2]:.2f} (80%)
-TP4 – ${test_signal_data['tp_targets'][3]:.2f} (100%)
+🥉 TP1 – ${test_signal_data['tp_targets'][0]:.2f} (40%)
+🥈 TP2 – ${test_signal_data['tp_targets'][1]:.2f} (60%)
+🥇 TP3 – ${test_signal_data['tp_targets'][2]:.2f} (80%)
+🚀 TP4 – ${test_signal_data['tp_targets'][3]:.2f} (100%)
 
 🔥 Filters Passed:
 {''.join([f'✅ {filter_name}' + chr(10) for filter_name in test_signal_data['filters_passed']])}
@@ -2745,7 +2771,7 @@ TP4 – ${test_signal_data['tp_targets'][3]:.2f} (100%)
 """
             
             keyboard = [
-                [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")],
                 [InlineKeyboardButton("🧪 SEND ANOTHER TEST", callback_data="test_signal")]
             ]
             
@@ -2761,7 +2787,7 @@ TP4 – ${test_signal_data['tp_targets'][3]:.2f} (100%)
                 f"❌ <b>TEST SIGNAL FAILED</b>\n\n"
                 f"Error: {str(e)}\n\n"
                 f"Please check your bot configuration and try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]]),
                 parse_mode=ParseMode.HTML
             )
     
@@ -2836,7 +2862,7 @@ The data has been sent as a text file below.
             )
             
             keyboard = [
-                [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")],
+                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")],
                 [InlineKeyboardButton("📥 EXPORT AGAIN", callback_data="export_logs")]
             ]
             
@@ -2852,7 +2878,7 @@ The data has been sent as a text file below.
                 f"❌ <b>EXPORT FAILED</b>\n\n"
                 f"Error: {str(e)}\n\n"
                 f"Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]]),
                 parse_mode=ParseMode.HTML
             )
     
