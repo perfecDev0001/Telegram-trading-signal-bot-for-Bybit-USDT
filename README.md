@@ -64,8 +64,8 @@ Edit `.env` file:
 ```env
 BOT_TOKEN=your_telegram_bot_token
 ADMIN_ID=7974254350
-BYBIT_API_KEY=1Lf8RrbAZwhGz42UNY
-BYBIT_SECRET=your_secret_if_needed
+BYBIT_API_KEY=your_bybit_api_key_here
+BYBIT_SECRET=your_bybit_secret_key_here
 ```
 
 ### 3. **Verify Setup**
@@ -150,7 +150,8 @@ Set in Render dashboard:
 ```
 BOT_TOKEN=your_bot_token
 ADMIN_ID=7974254350
-BYBIT_API_KEY=1Lf8RrbAZwhGz42UNY
+BYBIT_API_KEY=your_bybit_api_key_here
+BYBIT_SECRET=your_bybit_secret_key_here
 ```
 
 ## 🧪 Testing

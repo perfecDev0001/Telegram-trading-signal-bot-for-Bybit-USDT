@@ -222,7 +222,7 @@ class BotManager:
         """Start the Enhanced Bybit Scanner"""
         try:
             print("🔍 Starting Enhanced Bybit Scanner...")
-            print(f"⏱️ Scan interval: 60 seconds (1-minute candles)")
+            print(f"⏱️ Scan interval: 60 seconds (5-minute candles)")
             print(f"📊 Advanced filtering with confluence scoring")
             print(f"🎯 Using Bybit API Key: {Config.BYBIT_API_KEY or 'Public Access'}")
             
@@ -265,6 +265,8 @@ class BotManager:
         print(f"🎯 Admin ID: {Config.ADMIN_ID}")
         # Don't print sensitive information directly
         print(f"🔑 API Key: {Config.BYBIT_API_KEY[:5]}..." if Config.BYBIT_API_KEY else "No API Key configured")
+        print(f"🔐 API Secret: {'[CONFIGURED]' if Config.BYBIT_SECRET else '[NOT CONFIGURED]'}")
+        print(f"🎯 API Mode: {'Authenticated' if Config.BYBIT_API_KEY and Config.BYBIT_SECRET else 'Public'}")
         
         # Get current settings
         system_status = settings_manager.get_system_status()

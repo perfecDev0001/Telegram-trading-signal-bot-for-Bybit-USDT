@@ -382,6 +382,10 @@ class TelegramBot:
             await self.show_live_monitor(query)
         elif data == "force_scan":
             await self.force_scan(query)
+        elif data == "test_signal":
+            await self.test_signal(query)
+        elif data == "export_logs":
+            await self.export_logs(query)
         elif data == "help_menu":
             await self.show_help_menu(query)
         elif data == "restart_session":
@@ -554,7 +558,7 @@ class TelegramBot:
             success = db.remove_subscriber(user_id)
             
             if success:
-                message = f"✅ <b>Subscriber Removed!</b>\n\n"
+                message = f"♻️ <b>Subscriber Removed!</b>\n\n"
                 message += f"User ID <code>{user_id}</code> has been removed from the subscriber list."
             else:
                 message = f"❌ <b>Subscriber Not Found</b>\n\n"
@@ -650,7 +654,7 @@ class TelegramBot:
                 # ❌ General User Message (Unauthorized User)
                 try:
                     await update.message.reply_text(
-                        f"❌ You do not have access to this bot.\n\n"
+                        f"🚫 You do not have access to this bot.\n\n"
                         f"You need to get access from an administrator to receive information from this bot.",
                         parse_mode=ParseMode.HTML
                     )
@@ -727,6 +731,11 @@ Choose an option from the menu below:
             [
                 InlineKeyboardButton("⚙️ SETTINGS", callback_data="settings"),
                 InlineKeyboardButton("⚡ FORCE SCAN", callback_data="force_scan")
+            ],
+            # Row 3b: Test Signal (New Feature)
+            [
+                InlineKeyboardButton("🧪 TEST SIGNAL", callback_data="test_signal"),
+                InlineKeyboardButton("📥 EXPORT LOGS", callback_data="export_logs")
             ],
             # Row 4: Logout | Pause Scanner
             [
@@ -918,7 +927,7 @@ Only the administrator, the administrator’s private channel, and subscribers e
             else:
                 # Unauthorized user message
                 await update.message.reply_text(
-                    "❌ You do not have access to this bot.\n\n"
+                    "🚫 You do not have access to this bot.\n\n"
                     "Contact the administrator to request access.",
                     parse_mode=ParseMode.HTML
                 )
@@ -1474,7 +1483,7 @@ Currently monitoring {pairs_count} trading pairs:
         keyboard = [[InlineKeyboardButton("🔄 RESTART", callback_data="restart_session")]]
         
         await query.edit_message_text(
-            "🔴 Logged out. The admin session has ended and all admin panel buttons have been disabled.\nTo re-enable all bot features, click the Restart button below.",
+            "🔴 Logged out.\nThe admin session has ended and all admin panel buttons have been disabled.\nTo re-enable all bot features, click the RESTART button below.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -2601,6 +2610,221 @@ Please try again or check the API connection.
         except Exception as e:
             await query.edit_message_text(f"❌ Settings error: {e}")
             return ConversationHandler.END
+    
+    async def test_signal(self, query):
+        """Send a test signal to verify delivery"""
+        try:
+            await query.edit_message_text("🧪 <b>SENDING TEST SIGNAL...</b>\n\n⏳ Please wait...", parse_mode=ParseMode.HTML)
+            
+            # Create a test signal
+            test_signal_data = {
+                'symbol': 'BTCUSDT',
+                'signal_type': 'LONG',
+                'entry_price': 50000.00,
+                'strength': 85.0,
+                'tp_targets': [50750.00, 51500.00, 52500.00, 53750.00],
+                'filters_passed': [
+                    'Breakout Pattern',
+                    'Volume Surge',
+                    'Order Book Imbalance',
+                    'Whale Activity',
+                    'Range Break (>1.2%)',
+                    'Liquidity Support (3x)',
+                    'Trend Alignment',
+                    'RSI Filter (65)',
+                    'No Volume Divergence',
+                    'Tight Spread'
+                ]
+            }
+            
+            # Format test signal message
+            test_message = f"""
+🧪 <b>TEST SIGNAL</b>
+
+#{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20)
+
+📊 Entry - ${test_signal_data['entry_price']:.2f}
+🎯 Strength: {test_signal_data['strength']:.0f}%
+
+Take-Profit:
+TP1 – ${test_signal_data['tp_targets'][0]:.2f} (40%)
+TP2 – ${test_signal_data['tp_targets'][1]:.2f} (60%)
+TP3 – ${test_signal_data['tp_targets'][2]:.2f} (80%)
+TP4 – ${test_signal_data['tp_targets'][3]:.2f} (100%)
+
+🔥 Filters Passed:
+{''.join([f'✅ {filter_name}' + chr(10) for filter_name in test_signal_data['filters_passed']])}
+
+⏰ {datetime.now().strftime('%H:%M:%S')} UTC
+"""
+            
+            # Send test signal to admin
+            await self.application.bot.send_message(
+                chat_id=Config.ADMIN_ID,
+                text=test_message,
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Send test signal to subscriber if configured
+            if Config.SUBSCRIBER_ID:
+                try:
+                    await self.application.bot.send_message(
+                        chat_id=Config.SUBSCRIBER_ID,
+                        text=test_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send test signal to subscriber: {e}")
+            
+            # Send test signal to channel if configured
+            if Config.CHANNEL_ID:
+                try:
+                    await self.application.bot.send_message(
+                        chat_id=Config.CHANNEL_ID,
+                        text=test_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send test signal to channel: {e}")
+            
+            # Log test signal
+            db.add_signal(
+                symbol=test_signal_data['symbol'],
+                signal_type=f"TEST_{test_signal_data['signal_type']}",
+                price=test_signal_data['entry_price'],
+                change_percent=0.0,
+                volume=0.0,
+                message=f"Test signal - Strength: {test_signal_data['strength']:.0f}%"
+            )
+            
+            success_message = f"""
+✅ <b>TEST SIGNAL SENT SUCCESSFULLY!</b>
+
+📊 <b>Delivery Status:</b>
+• Admin: ✅ Sent to {Config.ADMIN_ID}
+• Subscriber: {'✅ Sent to ' + str(Config.SUBSCRIBER_ID) if Config.SUBSCRIBER_ID else '❌ Not configured'}
+• Channel: {'✅ Sent to ' + str(Config.CHANNEL_ID) if Config.CHANNEL_ID else '❌ Not configured'}
+
+📋 <b>Test Signal Details:</b>
+• Symbol: {test_signal_data['symbol']}
+• Type: {test_signal_data['signal_type']}
+• Strength: {test_signal_data['strength']:.0f}%
+• Filters: {len(test_signal_data['filters_passed'])} passed
+
+🔄 Check your messages to verify delivery.
+"""
+            
+            keyboard = [
+                [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")],
+                [InlineKeyboardButton("🧪 SEND ANOTHER TEST", callback_data="test_signal")]
+            ]
+            
+            await query.edit_message_text(
+                success_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+        except Exception as e:
+            logger.error(f"Error sending test signal: {e}")
+            await query.edit_message_text(
+                f"❌ <b>TEST SIGNAL FAILED</b>\n\n"
+                f"Error: {str(e)}\n\n"
+                f"Please check your bot configuration and try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]]),
+                parse_mode=ParseMode.HTML
+            )
+    
+    async def export_logs(self, query):
+        """Export signals log and subscriber list"""
+        try:
+            await query.edit_message_text("📥 <b>EXPORTING DATA...</b>\n\n⏳ Please wait...", parse_mode=ParseMode.HTML)
+            
+            # Get signals log
+            signals = db.get_signals_log(limit=100)
+            
+            # Get subscribers
+            subscribers = db.get_subscribers_info()
+            
+            # Format signals log
+            signals_text = "📈 SIGNALS LOG\n" + "="*50 + "\n\n"
+            if signals:
+                for signal in signals:
+                    signals_text += f"Symbol: {signal['symbol']}\n"
+                    signals_text += f"Type: {signal['signal_type']}\n"
+                    signals_text += f"Price: ${signal['price']:.2f}\n"
+                    signals_text += f"Change: {signal['change_percent']:.2f}%\n"
+                    signals_text += f"Time: {signal['timestamp']}\n"
+                    signals_text += f"Message: {signal['message']}\n"
+                    signals_text += "-" * 30 + "\n\n"
+            else:
+                signals_text += "No signals found.\n\n"
+            
+            # Format subscribers list
+            subscribers_text = "👥 SUBSCRIBERS LIST\n" + "="*50 + "\n\n"
+            if subscribers:
+                for sub in subscribers:
+                    subscribers_text += f"ID: {sub['user_id']}\n"
+                    subscribers_text += f"Username: @{sub['username']}\n" if sub['username'] else "Username: N/A\n"
+                    subscribers_text += f"Name: {sub['first_name']}\n"
+                    subscribers_text += f"Active: {'Yes' if sub['is_active'] else 'No'}\n"
+                    subscribers_text += f"Added: {sub['added_date']}\n"
+                    subscribers_text += "-" * 30 + "\n\n"
+            else:
+                subscribers_text += "No subscribers found.\n\n"
+            
+            # Combine data
+            export_data = signals_text + "\n\n" + subscribers_text
+            
+            # Create export summary
+            export_summary = f"""
+📥 <b>EXPORT COMPLETED</b>
+
+📊 <b>Data Summary:</b>
+• Total Signals: {len(signals)}
+• Total Subscribers: {len(subscribers)}
+• Active Subscribers: {len([s for s in subscribers if s['is_active']])}
+
+📋 <b>Export includes:</b>
+• Last 100 signals with details
+• Complete subscriber list
+• Timestamps and statistics
+
+The data has been sent as a text file below.
+"""
+            
+            # Send as file
+            import io
+            file_buffer = io.BytesIO(export_data.encode('utf-8'))
+            file_buffer.name = f"bybit_scanner_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            
+            await self.application.bot.send_document(
+                chat_id=query.from_user.id,
+                document=file_buffer,
+                caption=export_summary,
+                parse_mode=ParseMode.HTML
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")],
+                [InlineKeyboardButton("📥 EXPORT AGAIN", callback_data="export_logs")]
+            ]
+            
+            await query.edit_message_text(
+                export_summary,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+        except Exception as e:
+            logger.error(f"Error exporting data: {e}")
+            await query.edit_message_text(
+                f"❌ <b>EXPORT FAILED</b>\n\n"
+                f"Error: {str(e)}\n\n"
+                f"Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="back_to_main")]]),
+                parse_mode=ParseMode.HTML
+            )
     
     def get_application(self):
         """Get the telegram application instance"""

@@ -20,15 +20,26 @@ class Config:
     PUMP_THRESHOLD = float(os.getenv('PUMP_THRESHOLD', '5.0'))
     DUMP_THRESHOLD = float(os.getenv('DUMP_THRESHOLD', '-5.0'))
     BREAKOUT_THRESHOLD = float(os.getenv('BREAKOUT_THRESHOLD', '3.0'))
+    VOLUME_THRESHOLD = float(os.getenv('VOLUME_THRESHOLD', '50.0'))
     
     # Database Configuration
     DATABASE_PATH = os.getenv('DATABASE_PATH', './bot_data.db')
+    
+    # Enhanced Signal Detection Thresholds
+    SIGNAL_STRENGTH_THRESHOLD = float(os.getenv('SIGNAL_STRENGTH_THRESHOLD', '70.0'))
+    WHALE_THRESHOLD = float(os.getenv('WHALE_THRESHOLD', '15000.0'))  # $15k minimum
+    LIQUIDITY_RATIO_THRESHOLD = float(os.getenv('LIQUIDITY_RATIO_THRESHOLD', '3.0'))  # 3x imbalance
+    RSI_OVERBOUGHT = float(os.getenv('RSI_OVERBOUGHT', '75.0'))
+    RSI_OVERSOLD = float(os.getenv('RSI_OVERSOLD', '25.0'))
+    SPREAD_THRESHOLD = float(os.getenv('SPREAD_THRESHOLD', '0.3'))  # 0.3% max spread
+    RANGE_BREAK_THRESHOLD = float(os.getenv('RANGE_BREAK_THRESHOLD', '1.2'))  # 1.2% range break
     
     # Default trading pairs to monitor (USDT Perpetuals)
     DEFAULT_PAIRS = [
         'BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'BNBUSDT', 'XRPUSDT',
         'SOLUSDT', 'DOTUSDT', 'DOGEUSDT', 'AVAXUSDT', 'MATICUSDT',
-        'LINKUSDT', 'LTCUSDT', 'BCHUSDT', 'EOSUSDT', 'TRXUSDT'
+        'LINKUSDT', 'LTCUSDT', 'BCHUSDT', 'EOSUSDT', 'TRXUSDT',
+        'ARBUSDT', 'OPUSDT', 'ATOMUSDT', 'NEARUSDT', 'APTUSDT'
     ]
 
 # Validate critical configurations

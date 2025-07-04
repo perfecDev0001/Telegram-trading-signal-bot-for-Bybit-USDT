@@ -83,8 +83,7 @@ class EnhancedBybitScanner:
     def __init__(self):
         self.base_url = "https://api.bybit.com"
         self.api_key = Config.BYBIT_API_KEY if hasattr(Config, 'BYBIT_API_KEY') and Config.BYBIT_API_KEY else None
-        # We're using public API only, so we don't need the secret
-        self.api_secret = None
+        self.api_secret = Config.BYBIT_SECRET if hasattr(Config, 'BYBIT_SECRET') and Config.BYBIT_SECRET else None
         
         # Optimized memory management with circular buffers
         self.price_history = {}  # Limited to last 100 entries per symbol
@@ -92,14 +91,21 @@ class EnhancedBybitScanner:
         self.last_scan_time = {}
         self.max_history_size = 100  # Prevent memory leaks
         
-        # Rate limiting optimized for public API
+        # Rate limiting optimized for authenticated API
         self.last_request_time = 0
-        # More conservative rate limiting for public API (5 requests per second max)
-        self.min_request_interval = 0.25  # 250ms between requests (4 req/sec) to stay under limits
+        # Set rate limits based on whether we have API credentials
+        if self.api_key and self.api_secret:
+            # Authenticated API - higher rate limits (20 requests per second)
+            self.min_request_interval = 0.05  # 50ms between requests (20 req/sec)
+            self.max_requests_per_window = 20  # Max 20 requests per 1-second window
+        else:
+            # Public API - more conservative rate limiting
+            self.min_request_interval = 0.25  # 250ms between requests (4 req/sec)
+            self.max_requests_per_window = 10  # Max 10 requests per 1-second window
+        
         self.api_errors = 0  # Track API errors for adaptive rate limiting
         self.request_count = 0
         self.request_window_start = time.time()
-        self.max_requests_per_window = 10  # Max 10 requests per 1-second window
         
         # New filter thresholds for enhanced requirements
         self.whale_threshold = 15000  # $15k minimum for whale detection
@@ -108,7 +114,7 @@ class EnhancedBybitScanner:
         self.rsi_oversold = 25   # Block SHORT signals below this
         
     async def _rate_limit(self):
-        """Implement enhanced rate limiting for public API"""
+        """Implement enhanced rate limiting for authenticated/public API"""
         current_time = time.time()
         
         # Check time since last request (basic rate limiting)
@@ -225,13 +231,32 @@ class EnhancedBybitScanner:
         ).hexdigest()
     
     def _get_auth_headers(self, params: Dict = None) -> Dict[str, str]:
-        """Get headers for public API requests"""
+        """Get headers for authenticated API requests"""
         headers = {
             'Content-Type': 'application/json'
         }
         
-        # Add API key if available (helps with higher rate limits)
-        if self.api_key:
+        # If we have both API key and secret, use authenticated requests
+        if self.api_key and self.api_secret:
+            timestamp = str(int(time.time() * 1000))
+            
+            # Prepare params string for signature
+            if params:
+                param_str = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
+            else:
+                param_str = ""
+            
+            # Generate signature
+            signature = self._generate_signature(param_str, timestamp)
+            
+            headers.update({
+                'X-BAPI-API-KEY': self.api_key,
+                'X-BAPI-TIMESTAMP': timestamp,
+                'X-BAPI-SIGN': signature,
+                'X-BAPI-RECV-WINDOW': '5000'
+            })
+        elif self.api_key:
+            # Public API with API key for higher rate limits
             headers['X-BAPI-API-KEY'] = self.api_key
         
         return headers
@@ -244,18 +269,25 @@ class EnhancedBybitScanner:
                 history_dict[symbol] = history_dict[symbol][-self.max_history_size:]
     
     def _adaptive_rate_limit(self):
-        """Adjust rate limiting based on API performance for public endpoints"""
+        """Adjust rate limiting based on API performance for authenticated/public endpoints"""
         if self.api_errors > 3:
-            # Slow down significantly if we're getting errors (public API is stricter)
+            # Slow down significantly if we're getting errors
             self.min_request_interval = min(0.5, self.min_request_interval * 1.5)  # Up to 500ms between requests
             self.max_requests_per_window = max(5, self.max_requests_per_window - 1)  # Reduce window limit
             print(f"⚠️ Reducing API rate limits due to errors: {self.min_request_interval:.2f}s interval, {self.max_requests_per_window} req/window")
             self.api_errors = 0
         elif self.api_errors == 0:
             # Speed up very gradually if no errors
-            self.min_request_interval = max(0.2, self.min_request_interval * 0.95)  # No faster than 200ms
-            if self.min_request_interval < 0.3:  # Only increase window limit if we're at a good interval
-                self.max_requests_per_window = min(10, self.max_requests_per_window + 1)  # Increase window limit
+            if self.api_key and self.api_secret:
+                # Authenticated API - can go faster
+                self.min_request_interval = max(0.05, self.min_request_interval * 0.95)  # No faster than 50ms
+                if self.min_request_interval < 0.1:  # Only increase window limit if we're at a good interval
+                    self.max_requests_per_window = min(20, self.max_requests_per_window + 1)  # Increase window limit
+            else:
+                # Public API - more conservative
+                self.min_request_interval = max(0.2, self.min_request_interval * 0.95)  # No faster than 200ms
+                if self.min_request_interval < 0.3:  # Only increase window limit if we're at a good interval
+                    self.max_requests_per_window = min(10, self.max_requests_per_window + 1)  # Increase window limit
     
     async def get_market_data(self, symbol: str) -> Optional[MarketData]:
         """Get comprehensive market data for a symbol"""
