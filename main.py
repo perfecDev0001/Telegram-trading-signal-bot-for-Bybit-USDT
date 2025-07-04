@@ -45,7 +45,7 @@ class BotManager:
         try:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 if (proc.info['pid'] != current_pid and 
-                    proc.info['name'] == 'python.exe'):
+                    (proc.info['name'] in ['python', 'python3', 'python.exe', 'python3.exe'])):
                     python_processes.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
@@ -55,9 +55,9 @@ class BotManager:
             try:
                 if (proc.info['cmdline'] and
                     any(keyword in ' '.join(proc.info['cmdline']).lower() 
-                        for keyword in ['main.py', 'working_bot', 'bot'])):
+                        for keyword in ['main.py', 'telegram_bot', 'bybit', 'scanner', 'bot'])):
                     
-                    print(f"  Killing PID {proc.info['pid']}")
+                    print(f"  Killing conflicting process PID {proc.info['pid']}: {' '.join(proc.info['cmdline'])}")
                     proc.kill()
                     killed += 1
                     
@@ -65,10 +65,10 @@ class BotManager:
                 pass
         
         if killed > 0:
-            print(f"✅ Cleaned up {killed} processes")
-            time.sleep(0.3)  # Minimal delay for process cleanup
+            print(f"✅ Cleaned up {killed} conflicting processes")
+            time.sleep(2)  # Give more time for process cleanup
         else:
-            print("✅ No conflicts found")
+            print("✅ No conflicting processes found")
     
     async def start_bot(self):
         """Start the Telegram bot"""
@@ -97,9 +97,15 @@ class BotManager:
         except asyncio.CancelledError:
             print("🛑 Bot task was cancelled")
         except Exception as e:
-            print(f"❌ Bot error: {e}")
-            import traceback
-            traceback.print_exc()
+            error_msg = str(e)
+            if "409" in error_msg or "Conflict" in error_msg:
+                print(f"❌ Bot conflict error: {e}")
+                print("💡 This usually means another bot instance is running.")
+                print("   Try running: python clear_bot_conflicts.py")
+            else:
+                print(f"❌ Bot error: {e}")
+                import traceback
+                traceback.print_exc()
         finally:
             # Use the new stop method
             await self.telegram_bot.stop_bot()
@@ -280,6 +286,10 @@ class BotManager:
         
         # Cleanup first
         self.cleanup_processes()
+        
+        # Add startup delay to ensure any previous instances are fully terminated
+        print("⏳ Waiting for system stabilization...")
+        await asyncio.sleep(5)
         
         # Set up signal handlers for graceful shutdown
         def signal_handler(signum, frame):

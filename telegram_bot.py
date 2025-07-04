@@ -36,7 +36,7 @@ class TelegramBot:
         self._running = False
     
     async def start_bot(self):
-        """Start the bot with proper error handling"""
+        """Start the bot with proper error handling and conflict resolution"""
         try:
             print("🤖 Initializing bot...")
             await self.application.initialize()
@@ -50,25 +50,55 @@ class TelegramBot:
                 print(f"❌ Bot connection test failed: {e}")
                 return False
             
+            # Clear any existing webhooks that might conflict with polling
+            print("🧹 Clearing any existing webhooks...")
+            try:
+                await self.application.bot.delete_webhook(drop_pending_updates=True)
+                print("✅ Webhooks cleared")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not clear webhooks: {e}")
+            
             print("🚀 Starting bot application...")
             await self.application.start()
             
-            print("📡 Starting polling...")
-            await self.application.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"],
-                timeout=30,  # 30 second timeout for getting updates
-                read_timeout=30,  # 30 second read timeout
-                write_timeout=30,  # 30 second write timeout
-                connect_timeout=30,  # 30 second connection timeout
-                pool_timeout=30  # 30 second pool timeout
-            )
+            # Add retry logic for polling conflicts
+            max_retries = 3
+            retry_delay = 10
             
-            self._running = True
-            print("✅ Bot is running and polling for messages!")
-            print(f"🔑 Admin ID: {Config.ADMIN_ID}")
-            print("📱 Send /start to test the bot")
-            return True
+            for attempt in range(max_retries):
+                try:
+                    print(f"📡 Starting polling (attempt {attempt + 1}/{max_retries})...")
+                    await self.application.updater.start_polling(
+                        drop_pending_updates=True,
+                        allowed_updates=["message", "callback_query"],
+                        timeout=30,  # 30 second timeout for getting updates
+                        read_timeout=30,  # 30 second read timeout
+                        write_timeout=30,  # 30 second write timeout
+                        connect_timeout=30,  # 30 second connection timeout
+                        pool_timeout=30  # 30 second pool timeout
+                    )
+                    
+                    self._running = True
+                    print("✅ Bot is running and polling for messages!")
+                    print(f"🔑 Admin ID: {Config.ADMIN_ID}")
+                    print("📱 Send /start to test the bot")
+                    return True
+                    
+                except Exception as e:
+                    if "409" in str(e) or "Conflict" in str(e):
+                        print(f"⚠️ Polling conflict detected (attempt {attempt + 1}): {e}")
+                        if attempt < max_retries - 1:
+                            print(f"⏳ Waiting {retry_delay} seconds before retry...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                        else:
+                            print("❌ Max retries reached for polling conflicts")
+                            return False
+                    else:
+                        raise e
+            
+            return False
             
         except Exception as e:
             print(f"❌ Failed to start bot: {e}")
