@@ -293,15 +293,23 @@ class EnhancedBybitScanner:
                     self.max_requests_per_window = min(10, self.max_requests_per_window + 1)  # Increase window limit
     
     async def get_market_data(self, symbol: str) -> Optional[MarketData]:
-        """Get comprehensive market data for a symbol"""
+        """Get comprehensive market data for a symbol with enhanced error handling"""
         await self._rate_limit()
         
         try:
             # Check if we have API credentials
             if not self.api_key or not self.api_secret:
-                print(f"⚠️ Warning: No API credentials for {symbol}. Using public API with limited rate limits.")
-                print(f"⚠️ For better performance, add BYBIT_API_KEY and BYBIT_SECRET to your .env file")
-                print(f"⚠️ Get free API keys at: https://www.bybit.com/app/user/api-management")
+                # Only print warning once per session to reduce spam
+                if not hasattr(self, '_warned_no_credentials'):
+                    print(f"⚠️ Warning: No API credentials. Using public API with limited rate limits.")
+                    print(f"⚠️ For better performance, add BYBIT_API_KEY and BYBIT_SECRET to your .env file")
+                    print(f"⚠️ Get free API keys at: https://www.bybit.com/app/user/api-management")
+                    self._warned_no_credentials = True
+                
+                # Use more conservative timeout for public API
+                timeout = 8
+            else:
+                timeout = 15
             
             url = f"{self.base_url}/v5/market/tickers"
             params = {
@@ -312,7 +320,7 @@ class EnhancedBybitScanner:
             # Get headers (will be public if no API key)
             headers = self._get_auth_headers()
             
-            response = await self._make_api_request(url, params, headers)
+            response = await self._make_api_request(url, params, headers, timeout=timeout)
             
             if response and response.status_code == 200:
                 data = response.json()
@@ -360,6 +368,112 @@ class EnhancedBybitScanner:
                 print(f"⚠️ Connection/timeout issue for {symbol}. This may be due to rate limiting without API credentials.")
             self.api_errors += 1
             return None
+    
+    async def get_batch_market_data(self, symbols: List[str]) -> List[Dict]:
+        """Get market data for multiple symbols in a single request (ChatGPT analysis recommendation)"""
+        await self._rate_limit()
+        
+        try:
+            # Use batch endpoint to fetch all symbols at once (more efficient)
+            url = f"{self.base_url}/v5/market/tickers"
+            params = {
+                'category': 'linear'  # Get all linear/perpetual futures tickers
+            }
+            
+            # Adjust timeout based on API type
+            if not self.api_key or not self.api_secret:
+                timeout = 10  # Conservative timeout for public API
+            else:
+                timeout = 15  # Longer timeout for authenticated API
+            
+            headers = self._get_auth_headers()
+            
+            print(f"📊 Fetching batch market data for {len(symbols)} symbols...")
+            response = await self._make_api_request(url, params, headers, timeout=timeout)
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                if data.get('retCode') == 0 and data.get('result', {}).get('list'):
+                    tickers = data['result']['list']
+                    
+                    # Create a dictionary for fast lookup
+                    ticker_dict = {ticker['symbol']: ticker for ticker in tickers}
+                    
+                    # Extract data for requested symbols
+                    result = []
+                    for symbol in symbols:
+                        if symbol in ticker_dict:
+                            ticker = ticker_dict[symbol]
+                            try:
+                                price = float(ticker.get('lastPrice', 0))
+                                volume_24h = float(ticker.get('volume24h', 0))
+                                change_24h = float(ticker.get('price24hPcnt', 0)) * 100
+                                
+                                result.append({
+                                    'symbol': symbol,
+                                    'price': price,
+                                    'volume_24h': volume_24h,
+                                    'change_24h': change_24h,
+                                    'error': False
+                                })
+                            except (ValueError, TypeError) as e:
+                                print(f"❌ Error parsing data for {symbol}: {e}")
+                                result.append({
+                                    'symbol': symbol,
+                                    'price': 0.0,
+                                    'volume_24h': 0.0,
+                                    'change_24h': 0.0,
+                                    'error': True,
+                                    'error_msg': f'Parse error: {str(e)[:30]}'
+                                })
+                        else:
+                            result.append({
+                                'symbol': symbol,
+                                'price': 0.0,
+                                'volume_24h': 0.0,
+                                'change_24h': 0.0,
+                                'error': True,
+                                'error_msg': 'Symbol not found'
+                            })
+                    
+                    print(f"✅ Successfully fetched batch data for {len(result)} symbols")
+                    return result
+                else:
+                    error_msg = data.get('retMsg', 'Unknown error')
+                    print(f"❌ API returned error for batch request: {error_msg}")
+            else:
+                status_code = response.status_code if response else 'No response'
+                print(f"❌ HTTP error for batch request: {status_code}")
+                
+            # Return error data for all symbols if batch request fails
+            return [
+                {
+                    'symbol': symbol,
+                    'price': 0.0,
+                    'volume_24h': 0.0,
+                    'change_24h': 0.0,
+                    'error': True,
+                    'error_msg': 'Batch request failed'
+                }
+                for symbol in symbols
+            ]
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Error in batch market data request: {error_msg}")
+            
+            # Return error data for all symbols if exception occurs
+            return [
+                {
+                    'symbol': symbol,
+                    'price': 0.0,
+                    'volume_24h': 0.0,
+                    'change_24h': 0.0,
+                    'error': True,
+                    'error_msg': f'Exception: {error_msg[:30]}'
+                }
+                for symbol in symbols
+            ]
     
     async def get_kline_data(self, symbol: str, interval: str = "1", limit: int = 100) -> List[CandleData]:
         """Get candlestick data with enhanced structure"""

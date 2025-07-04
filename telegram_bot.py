@@ -392,6 +392,8 @@ class TelegramBot:
             await self.restart_session(query)
         elif data == "api_setup":
             await self.show_api_setup(query)
+        elif data == "api_setup_refresh":
+            await self.show_api_setup(query)
     
     async def show_manage_subscribers(self, query):
         """Show subscriber management menu"""
@@ -529,6 +531,32 @@ class TelegramBot:
                     parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
+                
+                # Send welcome message to the new subscriber
+                try:
+                    welcome_message = f"🎉 <b>Welcome to the Bybit Scanner Bot!</b>\n\n"
+                    welcome_message += f"🔔 You have been added as a subscriber.\n"
+                    welcome_message += f"📊 You will now receive trading signals for monitored pairs.\n\n"
+                    welcome_message += f"📈 <b>What you'll receive:</b>\n"
+                    welcome_message += f"• Pump signals when price increases significantly\n"
+                    welcome_message += f"• Dump signals when price decreases significantly\n"
+                    welcome_message += f"• Breakout signals for technical analysis\n"
+                    welcome_message += f"• Volume surge alerts\n\n"
+                    welcome_message += f"⚙️ <b>Current Settings:</b>\n"
+                    welcome_message += f"• Pump threshold: +5.0%\n"
+                    welcome_message += f"• Dump threshold: -5.0%\n"
+                    welcome_message += f"• Signal strength: ≥70%\n\n"
+                    welcome_message += f"🚀 Happy trading! 📊"
+                    
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=welcome_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                    print(f"✅ Welcome message sent to new subscriber {user_id}")
+                except Exception as e:
+                    print(f"⚠️ Failed to send welcome message to {user_id}: {e}")
+                    # This is not critical, so we continue
             else:
                 message = f"❌ <b>Failed to add subscriber {user_id}</b>\n\nPlease try again or check the user ID."
                 
@@ -2046,50 +2074,25 @@ Click below to toggle filters:"""
                     }
                 return None
             
-            # Execute requests with public API rate limiting
+            # Use batch endpoint for better performance (ChatGPT analysis recommendation)
             try:
-                # Use semaphore to limit concurrent requests (more conservative for public API)
-                semaphore = asyncio.Semaphore(2)  # Max 2 concurrent requests for public API
-                
-                async def limited_request(symbol):
-                    async with semaphore:
-                        result = await get_pair_data(symbol)
-                        # Add small delay between requests for public API
-                        await asyncio.sleep(0.25)  # 250ms delay between requests
-                        return result
+                # Check if we have API credentials to adjust timeout
+                if not enhanced_scanner.api_key or not enhanced_scanner.api_secret:
+                    timeout = 12.0  # Conservative timeout for public API
+                    print("⚠️ Using public API - fetching data with batch endpoint")
+                else:
+                    timeout = 20.0  # Longer timeout for authenticated API  
+                    print("✅ Using authenticated API - fetching data with batch endpoint")
                 
                 # Limit to top 5 pairs for speed
-                top_pairs = monitored_pairs[:5]
-                tasks = [limited_request(symbol) for symbol in top_pairs]
                 
-                # Use wait_for to set an overall timeout (longer for public API)
-                results = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True), 
-                    timeout=15.0  # Increased timeout for public API
+                # Use batch endpoint instead of individual requests (much more efficient)
+                print(f"📊 Fetching batch data for {len(top_pairs)} pairs: {', '.join(top_pairs)}")
+                live_data = await asyncio.wait_for(
+                    enhanced_scanner.get_batch_market_data(top_pairs = monitored_pairs[:5]
+                top_pairs),
+                    timeout=timeout
                 )
-                
-                live_data = []
-                for i, result in enumerate(results):
-                    if isinstance(result, Exception):
-                        live_data.append({
-                            'symbol': top_pairs[i],
-                            'price': 0.0,
-                            'change_24h': 0.0,
-                            'volume_24h': 0.0,
-                            'error': True,
-                            'error_msg': f"Error: {str(result)[:30]}"
-                        })
-                    elif result is not None:
-                        live_data.append(result)
-                    else:
-                        live_data.append({
-                            'symbol': top_pairs[i],
-                            'price': 0.0,
-                            'change_24h': 0.0,
-                            'volume_24h': 0.0,
-                            'error': True,
-                            'error_msg': 'No data returned'
-                        })
             except asyncio.TimeoutError:
                 # If timeout, show basic data
                 live_data = []
@@ -2116,13 +2119,13 @@ Click below to toggle filters:"""
             if not api_status['has_credentials']:
                 api_status_text += " (No API keys)"
             
-            message = f"""📊 **LIVE MARKET MONITOR**
+            message = f"""📊 <b>LIVE MARKET MONITOR</b>
             
-🤖 **Scanner Status:** {status_emoji} {status_text}
-🌐 **API Status:** {api_status_emoji} {api_status_text}
-📅 **Updated:** {dt.now().strftime('%H:%M:%S UTC')}
+🤖 <b>Scanner Status:</b> {status_emoji} {status_text}
+🌐 <b>API Status:</b> {api_status_emoji} {api_status_text}
+📅 <b>Updated:</b> {dt.now().strftime('%H:%M:%S UTC')}
 
-💹 **Top 5 Monitored Pairs:**
+💹 <b>Top 5 Monitored Pairs:</b>
 """
             
             # Count successful data fetches
@@ -2134,7 +2137,7 @@ Click below to toggle filters:"""
                     if 'timeout' in error_msg.lower():
                         error_msg = "Data unavailable (timeout)"
                     message += f"""
-**{data['symbol']}**
+<b>{data['symbol']}</b>
 ⚠️ {error_msg}
 """
                 else:
@@ -2142,18 +2145,19 @@ Click below to toggle filters:"""
                     volume_formatted = f"{data['volume_24h']:,.0f}" if data['volume_24h'] > 1000 else f"{data['volume_24h']:.2f}"
                     
                     message += f"""
-**{data['symbol']}**
+<b>{data['symbol']}</b>
 💰 ${data['price']:,.4f} | {change_emoji} {data['change_24h']:+.2f}%
 📊 Vol: ${volume_formatted}
 """
             
             # Add status message if some data failed
             if success_count < len(live_data):
-                message += f"\n⚠️ **Note:** {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
+                message += f"\n⚠️ <b>Note:</b> {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
                 
                 # Add API credential suggestion if no credentials
                 if not api_status['has_credentials']:
-                    message += f"\n\n💡 **Tip:** Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better performance and fewer timeouts."
+                    message += f"\n\n💡 <b>Tip:</b> Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better performance and fewer timeouts."
+                    message += f"\n🔗 <b>Using batch endpoint for better efficiency</b>"
             
             # Add refresh button and force scan option
             keyboard = [
@@ -2331,6 +2335,11 @@ Please try again or check the API connection.
     async def show_api_setup(self, query):
         """Show API setup instructions"""
         try:
+            # Show loading message first
+            await query.edit_message_text(
+                "⏳ Loading API setup...\n⚠️ Please do not take any action until information is received."
+            )
+            
             from enhanced_scanner import enhanced_scanner
             
             # Get current API status
@@ -2347,17 +2356,37 @@ Please try again or check the API connection.
                 status_message += "⚠️ **Issues:** Frequent timeouts and 'Data unavailable' errors\n\n"
                 status_message += enhanced_scanner.get_api_setup_instructions()
             
-            keyboard = [
-                [InlineKeyboardButton("🔄 CHECK STATUS", callback_data="api_setup")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                status_message,
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
+            # Store current message hash to detect changes
+            current_hash = hash(status_message)
+            if not hasattr(query, '_last_api_setup_hash') or query._last_api_setup_hash != current_hash:
+                query._last_api_setup_hash = current_hash
+                
+                keyboard = [
+                    [InlineKeyboardButton("🔄 CHECK STATUS", callback_data="api_setup_refresh")],
+                    [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    status_message,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                # If content hasn't changed, just update the timestamp
+                status_message += f"\n\n🔄 **Last Checked:** {datetime.now().strftime('%H:%M:%S UTC')}"
+                
+                keyboard = [
+                    [InlineKeyboardButton("🔄 CHECK STATUS", callback_data="api_setup_refresh")],
+                    [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    status_message,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
             await query.edit_message_text(f"❌ Error loading API setup: {e}")
@@ -2721,7 +2750,28 @@ Take-Profit:
                 parse_mode=ParseMode.HTML
             )
             
-            # Send test signal to subscriber if configured
+            # Send test signal to all active subscribers
+            sent_to_subscribers = 0
+            failed_subscribers = 0
+            
+            try:
+                subscribers = db.get_subscribers_info()
+                for subscriber in subscribers:
+                    if subscriber['is_active']:
+                        try:
+                            await self.application.bot.send_message(
+                                chat_id=subscriber['user_id'],
+                                text=test_message,
+                                parse_mode=ParseMode.HTML
+                            )
+                            sent_to_subscribers += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to send test signal to subscriber {subscriber['user_id']}: {e}")
+                            failed_subscribers += 1
+            except Exception as e:
+                logger.error(f"Error getting subscribers list: {e}")
+            
+            # Send test signal to legacy subscriber if configured (for backward compatibility)
             if Config.SUBSCRIBER_ID:
                 try:
                     await self.application.bot.send_message(
@@ -2730,7 +2780,7 @@ Take-Profit:
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to send test signal to subscriber: {e}")
+                    logger.warning(f"Failed to send test signal to legacy subscriber: {e}")
             
             # Send test signal to channel if configured
             if Config.CHANNEL_ID:
@@ -2758,7 +2808,9 @@ Take-Profit:
 
 📊 <b>Delivery Status:</b>
 • Admin: ✅ Sent to {Config.ADMIN_ID}
-• Subscriber: {'✅ Sent to ' + str(Config.SUBSCRIBER_ID) if Config.SUBSCRIBER_ID else '❌ Not configured'}
+• Subscribers: {'✅ Sent to ' + str(sent_to_subscribers) + ' subscribers' if sent_to_subscribers > 0 else '❌ No active subscribers'}
+{('• Failed: ' + str(failed_subscribers) + ' subscribers') if failed_subscribers > 0 else ''}
+• Legacy Subscriber: {'✅ Sent to ' + str(Config.SUBSCRIBER_ID) if Config.SUBSCRIBER_ID else '❌ Not configured'}
 • Channel: {'✅ Sent to ' + str(Config.CHANNEL_ID) if Config.CHANNEL_ID else '❌ Not configured'}
 
 📋 <b>Test Signal Details:</b>
@@ -2772,7 +2824,7 @@ Take-Profit:
             
             keyboard = [
                 [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")],
-                [InlineKeyboardButton("🧪 SEND ANOTHER TEST", callback_data="test_signal")]
+                [InlineKeyboardButton("🧪 TEST SIGNAL AGAIN", callback_data="test_signal")]
             ]
             
             await query.edit_message_text(
