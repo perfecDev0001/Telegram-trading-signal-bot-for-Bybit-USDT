@@ -1,1 +1,1 @@
-web: python deploy_clean.py
+web: python main.py

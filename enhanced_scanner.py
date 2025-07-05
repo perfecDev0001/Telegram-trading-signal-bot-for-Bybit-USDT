@@ -1930,36 +1930,7 @@ To fix timeout issues and improve performance:
             print(f"❌ Error in scan cycle: {e}")
             return 0
     
-    async def run_enhanced_scanner(self, bot_instance=None):
-        """Run the enhanced scanner continuously"""
-        print("🚀 Starting Enhanced Bybit Scanner...")
-        
-        while True:
-            try:
-                # Check if scanner is paused
-                scanner_status = db.get_scanner_status()
-                is_running = scanner_status.get('is_running', True)
-                
-                if not is_running:
-                    print("⏸️ Scanner is paused. Waiting for resume...")
-                    await asyncio.sleep(5)  # Check every 5 seconds if scanner is resumed
-                    continue
-                
-                # Run a single scan cycle
-                signals_count = await self.run_single_scan(bot_instance)
-                
-                if signals_count > 0:
-                    print(f"✅ Scan complete: {signals_count} signals generated")
-                else:
-                    print("✅ Scan complete: No signals generated")
-                
-                # Wait before next scan
-                print("⏱️ Waiting 60 seconds before next scan...")
-                await asyncio.sleep(60)
-                
-            except Exception as e:
-                print(f"❌ Error in scanner loop: {e}")
-                await asyncio.sleep(10)  # Wait a bit before retrying
+
 
     async def check_candle_body_rule(self, candles: List[CandleData]) -> Tuple[bool, float]:
         """Check if candle body is >60% of total candle size (low wick rejection)"""
@@ -2232,5 +2203,21 @@ To fix timeout issues and improve performance:
 enhanced_scanner = EnhancedBybitScanner()
 
 if __name__ == "__main__":
-    # Run enhanced scanner standalone
-    asyncio.run(enhanced_scanner.run_enhanced_scanner())
+    # Run enhanced scanner standalone for testing
+    print("🧪 Running enhanced scanner in test mode...")
+    print("⚠️ For production use, run: python main.py")
+    
+    async def test_scanner():
+        # Test API connectivity
+        connected = await enhanced_scanner.test_api_connectivity()
+        if connected:
+            print("✅ API connectivity test passed")
+        else:
+            print("❌ API connectivity test failed")
+        
+        # Test single scan
+        print("🔍 Testing single scan...")
+        signal_count = await enhanced_scanner.run_single_scan()
+        print(f"✅ Test completed: {signal_count} signals generated")
+    
+    asyncio.run(test_scanner())

@@ -21,6 +21,7 @@ from config import Config
 from telegram_bot import TelegramBot
 from enhanced_scanner import enhanced_scanner
 from settings_manager import settings_manager
+from scheduler import market_scheduler
 
 class BotManager:
     def __init__(self):
@@ -30,7 +31,7 @@ class BotManager:
         self.web_task = None
         self.keepalive_task = None
         self.startup_time = time.time()
-        self.telegram_bot = TelegramBot()
+        self.telegram_bot = None  # Will be created later
         self.service_url = None  # Will be set after server starts
     
     def cleanup_processes(self):
@@ -45,7 +46,7 @@ class BotManager:
         try:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 if (proc.info['pid'] != current_pid and 
-                    (proc.info['name'] in ['python', 'python3', 'python.exe', 'python3.exe'])):
+                    proc.info['name'] == 'python.exe'):
                     python_processes.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
@@ -55,9 +56,9 @@ class BotManager:
             try:
                 if (proc.info['cmdline'] and
                     any(keyword in ' '.join(proc.info['cmdline']).lower() 
-                        for keyword in ['main.py', 'telegram_bot', 'bybit', 'scanner', 'bot'])):
+                        for keyword in ['main.py', 'working_bot', 'bot'])):
                     
-                    print(f"  Killing conflicting process PID {proc.info['pid']}: {' '.join(proc.info['cmdline'])}")
+                    print(f"  Killing PID {proc.info['pid']}")
                     proc.kill()
                     killed += 1
                     
@@ -65,14 +66,20 @@ class BotManager:
                 pass
         
         if killed > 0:
-            print(f"✅ Cleaned up {killed} conflicting processes")
-            time.sleep(2)  # Give more time for process cleanup
+            print(f"✅ Cleaned up {killed} processes")
+            time.sleep(0.3)  # Minimal delay for process cleanup
         else:
-            print("✅ No conflicting processes found")
+            print("✅ No conflicts found")
     
     async def start_bot(self):
         """Start the Telegram bot"""
         try:
+            print("🤖 Creating Telegram Bot...")
+            
+            # Create the bot instance here to avoid weak reference issues
+            if self.telegram_bot is None:
+                self.telegram_bot = TelegramBot()
+            
             print("🤖 Starting Telegram Bot...")
             
             # Start the bot using the new method
@@ -97,15 +104,9 @@ class BotManager:
         except asyncio.CancelledError:
             print("🛑 Bot task was cancelled")
         except Exception as e:
-            error_msg = str(e)
-            if "409" in error_msg or "Conflict" in error_msg:
-                print(f"❌ Bot conflict error: {e}")
-                print("💡 This usually means another bot instance is running.")
-                print("   Try running: python clear_bot_conflicts.py")
-            else:
-                print(f"❌ Bot error: {e}")
-                import traceback
-                traceback.print_exc()
+            print(f"❌ Bot error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             # Use the new stop method
             await self.telegram_bot.stop_bot()
@@ -225,10 +226,10 @@ class BotManager:
             raise
     
     async def start_scanner(self):
-        """Start the Enhanced Bybit Scanner"""
+        """Start the Enhanced Bybit Scanner using APScheduler"""
         try:
-            print("🔍 Starting Enhanced Bybit Scanner...")
-            print(f"⏱️ Scan interval: 60 seconds (5-minute candles)")
+            print("🔍 Starting Enhanced Bybit Scanner with APScheduler...")
+            print(f"⏱️ Scan interval: {Config.SCANNER_INTERVAL} seconds (5-minute candles)")
             print(f"📊 Advanced filtering with confluence scoring")
             print(f"🎯 Using Bybit API Key: {Config.BYBIT_API_KEY or 'Public Access'}")
             
@@ -240,17 +241,32 @@ class BotManager:
             db.update_scanner_status(is_running=True)
             print("✅ Scanner status set to RUNNING")
             
-            # Run the enhanced scanner with bot instance for sending signals
+            # Set the telegram bot instance in the scheduler
+            # Try to get the bot instance, with fallback
+            try:
+                if hasattr(self.telegram_bot, 'application') and self.telegram_bot.application:
+                    market_scheduler.telegram_bot = self.telegram_bot.application.bot
+                    print("✅ Scheduler linked to Telegram bot")
+                else:
+                    print("⚠️ Bot application not ready, scheduler will start without bot instance")
+            except Exception as e:
+                print(f"⚠️ Could not link scheduler to bot: {e}")
+                print("📊 Scheduler will run without Telegram notifications")
+            
+            # Start the scheduler
+            await market_scheduler.start()
+            
+            # Keep the scanner running
             while self.running:
                 try:
-                    # Run scanner for shorter periods with restarts
-                    await asyncio.wait_for(
-                        enhanced_scanner.run_enhanced_scanner(self.telegram_bot.application.bot),
-                        timeout=300  # 5 minute timeout, then restart
-                    )
-                except asyncio.TimeoutError:
-                    print("⏱️ Scanner cycle completed, restarting...")
-                    continue
+                    # Check if scheduler is still running
+                    if not market_scheduler.is_running:
+                        print("⚠️ Scheduler stopped, attempting restart...")
+                        await market_scheduler.start()
+                    
+                    # Wait a bit before checking again
+                    await asyncio.sleep(30)
+                    
                 except asyncio.CancelledError:
                     print("🛑 Scanner cancelled")
                     break
@@ -261,6 +277,9 @@ class BotManager:
             
         except Exception as e:
             print(f"❌ Enhanced Scanner error: {e}")
+        finally:
+            # Stop the scheduler
+            await market_scheduler.stop()
     
     async def run(self):
         """Run both bot and scanner concurrently"""
@@ -287,10 +306,6 @@ class BotManager:
         # Cleanup first
         self.cleanup_processes()
         
-        # Add startup delay to ensure any previous instances are fully terminated
-        print("⏳ Waiting for system stabilization...")
-        await asyncio.sleep(5)
-        
         # Set up signal handlers for graceful shutdown
         def signal_handler(signum, frame):
             print(f"\n⚠️ Received signal {signum}, shutting down...")
@@ -300,10 +315,21 @@ class BotManager:
         signal.signal(signal.SIGTERM, signal_handler)
         
         try:
-            # Start bot, scanner, health server, and keep-alive concurrently
+            # Start bot first
+            print("🤖 Starting Telegram Bot...")
             self.bot_task = asyncio.create_task(self.start_bot())
+            
+            # Give the bot a moment to initialize
+            await asyncio.sleep(2)
+            
+            # Now start other services
+            print("📊 Starting Scanner...")
             self.scanner_task = asyncio.create_task(self.start_scanner())
+            
+            print("🌐 Starting Health Server...")
             self.web_task = asyncio.create_task(self.start_health_server())
+            
+            print("💓 Starting Keep-Alive...")
             self.keepalive_task = asyncio.create_task(self.start_keepalive())
             
             print("🚀 All services started. Waiting for completion...")
