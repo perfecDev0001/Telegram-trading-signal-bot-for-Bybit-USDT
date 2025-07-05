@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from database import db
+from config import Config
 
 @dataclass
 class ScannerSettings:

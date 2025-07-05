@@ -42,9 +42,9 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
 ## 🎯 Signal Recipients
 
 **Configured Recipients:**
-- 👤 **Admin**: @dream_code_star (ID: 7974254350)
-- 👤 **User**: @space_ion99 (ID: 7452976451)  
-- 📢 **Channel**: -1002674839519 (private)
+- 👤 **Admin**:
+- 👤 **User**:
+- 📢 **Channel:
 
 ## ⚙️ Quick Setup
 
@@ -63,7 +63,7 @@ cp .env.example .env
 Edit `.env` file:
 ```env
 BOT_TOKEN=your_telegram_bot_token
-ADMIN_ID=7974254350
+ADMIN_ID=admin_id
 BYBIT_API_KEY=your_bybit_api_key_here
 BYBIT_SECRET=your_bybit_secret_key_here
 ```
@@ -149,7 +149,7 @@ TP4 – $53750.00 (100%)
 Set in Render dashboard:
 ```
 BOT_TOKEN=your_bot_token
-ADMIN_ID=7974254350
+ADMIN_ID=admin_id
 BYBIT_API_KEY=your_bybit_api_key_here
 BYBIT_SECRET=your_bybit_secret_key_here
 ```
