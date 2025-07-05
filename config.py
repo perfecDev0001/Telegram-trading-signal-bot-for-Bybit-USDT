@@ -12,8 +12,8 @@ class Config:
     CHANNEL_ID = int(os.getenv('CHANNEL_ID', '-1002674839519'))  # Default channel ID
     
     # Bybit API Configuration
-    BYBIT_API_KEY = os.getenv('BYBIT_API_KEY', '')
-    BYBIT_SECRET = os.getenv('BYBIT_SECRET', '')
+    BYBIT_API_KEY = os.getenv('BYBIT_API_KEY', 'JPXoPSCRNVG7rw4ndl')
+    BYBIT_SECRET = os.getenv('BYBIT_SECRET', 'ZG19udpmBFhB56yJkqiYQIrP5Ie9UKu9u2ke')
     
     # Scanner Configuration
     SCANNER_INTERVAL = int(os.getenv('SCANNER_INTERVAL', '60'))
