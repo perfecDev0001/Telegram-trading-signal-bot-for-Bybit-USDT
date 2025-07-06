@@ -4,20 +4,20 @@ services:
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: python deploy_clean.py
+    startCommand: python main.py
     envVars:
+      # CRITICAL: Set these in Render Dashboard Environment Variables
+      # DO NOT put real values here for security reasons
       - key: BOT_TOKEN
-        value: 7341495471:AAF6lxa_awyOvjMIv3oSVRS5COadq2TEI_o
-      - key: ADMIN_ID
-        value: 7974254350
-      - key: SUBSCRIBER_ID
-        value: 7452976451
+        sync: false  # REQUIRED: Set in Render dashboard
+      - key: ADMIN_ID  
+        sync: false  # REQUIRED: Set in Render dashboard
       - key: CHANNEL_ID
-        value: -1002674839519
-      - key: BYBIT_API_KEY
-        value: JPXoPSCRNVG7rw4ndl
-      - key: BYBIT_SECRET
-        value: ZG19udpmBFhB56yJkqiYQIrP5Ie9UKu9u2ke
+        sync: false  # REQUIRED: Set in Render dashboard
+      - key: SUBSCRIBER_ID
+        value: "0"  # Optional: Default subscriber ID
+      - key: USE_PUBLIC_APIS_ONLY
+        value: true
       - key: SCANNER_INTERVAL
         value: 60
       - key: PUMP_THRESHOLD
@@ -47,4 +47,4 @@ services:
       - key: PORT
         value: 8080
       - key: RENDER_SERVICE_NAME
-        value: bybit-scanner-bot
+        value: public-api-crypto-scanner

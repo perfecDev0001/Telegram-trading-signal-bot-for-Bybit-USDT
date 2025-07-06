@@ -398,6 +398,10 @@ class TelegramBot:
             await self.show_help_menu(query)
         elif data == "restart_session":
             await self.restart_session(query)
+        elif data == "detailed_api_status":
+            await self.show_detailed_api_status(query)
+        elif data == "test_all_apis":
+            await self.test_all_apis(query)
         elif data == "api_setup":
             await self.show_api_setup(query)
         elif data == "api_setup_refresh":
@@ -816,12 +820,12 @@ Choose an option from the menu below:
                         subscriber_name += f" {subscriber_info['last_name']}"
                 
                 help_text = f"""
-🤖 <b>BYBIT SCANNER ROT - SUBSCRIBER HELP</b>
+🤖 <b>BYBIT SCANNER BOT - SUBSCRIBER HELP</b>
 
 Hello <b>{subscriber_name}</b>! 👋
 
 <b>📋 About This Bot:</b>
-You are subscribed to receive trading signals from our Bybit scanner bot.
+You are subscribed to receive trading signals from our Bybit Scanner Bot.
 
 <b>🔔 What You'll Receive:</b>
 • High-confidence trading signals (≥70% strength)
@@ -904,7 +908,7 @@ Use /start to access the main control panel.
 🚀 <b>ENHANCED BYBIT SCANNER BOT - HELP</b>
 
 <b>📋 PROJECT OVERVIEW:</b>
-A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetuals with advanced market analysis, multi-layered filtering, and real-time alerts.
+A comprehensive Python-based Telegram trading signal bot using multiple public APIs with advanced market analysis, multi-layered filtering, and real-time alerts. **No authentication required** - fully public access.
 
 <b>✨ CORE FEATURES:</b>
 • 🔍 Real-time Market Scanning (1-minute intervals)
@@ -999,7 +1003,7 @@ Choose an option from the menu below:
     
     # Placeholder methods for other callbacks
     async def show_scanner_status(self, query):
-        """Show current scanner status and statistics"""
+        """Show current scanner status and statistics with API fallback info"""
         try:
             # Get scanner status from database
             scanner_status = db.get_scanner_status()
@@ -1015,6 +1019,10 @@ Choose an option from the menu below:
                     last_scan = last_scan_dt.strftime('%Y-%m-%d %H:%M:%S')
                 except:
                     pass
+            
+            # Get API status for public APIs
+            from enhanced_scanner import enhanced_scanner
+            api_status = await enhanced_scanner.get_api_status()
             
             # Get monitored pairs
             monitored_pairs_str = scanner_status.get('monitored_pairs', '[]')
@@ -1039,15 +1047,36 @@ Choose an option from the menu below:
             recent_signals = db.get_recent_signals(5)
             signals_count = len(recent_signals)
             
+            # Build API status info for public APIs
+            public_apis = api_status.get('public_apis', {})
+            active_apis = api_status.get('active_apis', 0)
+            total_apis = api_status.get('total_apis', 0)
+            overall_status = api_status.get('status_text', 'Unknown')
+            
             # Build status message with timestamp to ensure uniqueness
             from datetime import datetime as dt
             current_time = dt.now().strftime('%H:%M:%S')
+            
+            # API Status section for public APIs
+            if overall_status == 'Excellent':
+                api_status_text = f"✅ Public APIs ({active_apis}/{total_apis} Active)"
+                api_emoji = "🟡"
+            elif overall_status == 'Good':
+                api_status_text = f"🟡 Public APIs ({active_apis}/{total_apis} Active)"
+                api_emoji = "🟢"
+            else:
+                api_status_text = f"❌ API Issues ({active_apis}/{total_apis} Active)"
+                api_emoji = "🔴"
+            
             status_message = f"""
 📊 <b>SCANNER STATUS</b>
 
-<b>Current Status:</b> {'🟢 RUNNING' if is_running else '🔴 PAUSED'}
+<b>Scanner:</b> {'🟢 RUNNING' if is_running else '🔴 PAUSED'}
+<b>API Status:</b> {api_emoji} {api_status_text}
+<b>Data Source:</b> Public APIs (No Authentication Required)
 <b>Last Scan:</b> {last_scan}
 <b>Last Updated:</b> {current_time} UTC
+
 <b>Monitored Pairs:</b> {pairs_count} pairs
 <b>Pairs:</b> {pairs_preview}
 
@@ -1082,7 +1111,8 @@ Choose an option from the menu below:
                                       callback_data="pause_scanner" if is_running else "resume_scanner")
                 ],
                 [
-                    InlineKeyboardButton("🔄 REFRESH STATUS", callback_data="scanner_status")
+                    InlineKeyboardButton("🔄 REFRESH STATUS", callback_data="scanner_status"),
+                    InlineKeyboardButton("🌐 API STATUS", callback_data="detailed_api_status")
                 ],
                 [
                     InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
@@ -1101,6 +1131,200 @@ Choose an option from the menu below:
                 f"❌ Error showing scanner status: {e}\n\nPlease try again.",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")
+                ]])
+            )
+    
+    async def show_detailed_api_status(self, query):
+        """Show detailed API status for public APIs"""
+        try:
+            from enhanced_scanner import enhanced_scanner
+            from datetime import datetime as dt
+            
+            # Get comprehensive API status
+            api_status = await enhanced_scanner.get_api_status()
+            
+            # Build detailed status message
+            current_time = dt.now().strftime('%H:%M:%S')
+            
+            public_apis = api_status.get('public_apis', {})
+            active_apis = api_status.get('active_apis', 0)
+            total_apis = api_status.get('total_apis', 0)
+            overall_status = api_status.get('status_text', 'Unknown')
+            
+            status_message = f"""
+🌐 <b>PUBLIC API STATUS</b>
+<b>Updated:</b> {current_time} UTC
+
+<b>🔓 PUBLIC APIs (NO AUTHENTICATION)</b>
+• Total APIs: {total_apis}
+• Active APIs: {active_apis}
+• Overall Status: {overall_status}
+• Authentication: ❌ Not Required
+
+<b>📊 API DETAILS</b>
+"""
+            
+            # Add public API details
+            if public_apis:
+                for api_name, api_info in public_apis.items():
+                    status_emoji = "🟢" if api_info.get('is_active') else "🔴"
+                    priority = api_info.get('priority', 'N/A')
+                    error_count = api_info.get('error_count', 0)
+                    last_success = api_info.get('last_success')
+                    
+                    if last_success:
+                        try:
+                            last_success_dt = dt.fromisoformat(last_success)
+                            last_success = last_success_dt.strftime('%m-%d %H:%M')
+                        except:
+                            last_success = "Unknown"
+                    else:
+                        last_success = "Never"
+                    
+                    status_message += f"""
+• <b>{api_info.get('name', api_name.upper())}</b>
+  {status_emoji} Priority: {priority} | Errors: {error_count}
+  Last Success: {last_success}"""
+            else:
+                status_message += "\n❌ No public APIs configured"
+            
+            # Add recommendations
+            status_message += f"""
+
+<b>📋 SYSTEM INFO</b>
+"""
+            
+            if overall_status == 'Excellent':
+                status_message += "• All public APIs working perfectly ✅\n"
+                status_message += "• Full redundancy available\n"
+                status_message += "• No authentication required\n"
+            elif overall_status == 'Good':
+                status_message += "• Most public APIs working ✅\n"
+                status_message += "• Sufficient redundancy available\n"
+                status_message += "• Some APIs may be rate limited\n"
+            else:
+                status_message += "• API connectivity issues ⚠️\n"
+                status_message += "• Check internet connection\n"
+                status_message += "• Some APIs may be temporarily down\n"
+            
+            status_message += "• 🔓 No API keys needed - fully public access\n"
+            status_message += "• 🌐 Multiple data sources for reliability"
+            
+            # Create keyboard
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 REFRESH", callback_data="detailed_api_status"),
+                    InlineKeyboardButton("🧪 TEST APIs", callback_data="test_all_apis")
+                ],
+                [
+                    InlineKeyboardButton("🔙 BACK TO STATUS", callback_data="scanner_status")
+                ]
+            ]
+            
+            await query.edit_message_text(
+                status_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+        except Exception as e:
+            print(f"Error showing detailed API status: {e}")
+            await query.edit_message_text(
+                "❌ Error loading API status. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 BACK TO STATUS", callback_data="scanner_status")
+                ]])
+            )
+    
+    async def test_all_apis(self, query):
+        """Test all public APIs and show results"""
+        try:
+            # Show testing message first
+            await query.edit_message_text(
+                "🧪 <b>TESTING PUBLIC APIs</b>\n\nPlease wait while testing all public data sources...",
+                parse_mode=ParseMode.HTML
+            )
+            
+            from enhanced_scanner import enhanced_scanner
+            from datetime import datetime as dt
+            
+            # Test public APIs by trying to get BTCUSDT data
+            test_results = {}
+            
+            # Test each API individually
+            for api_name, source in enhanced_scanner.api_sources.items():
+                try:
+                    if api_name == 'coingecko':
+                        result = await enhanced_scanner._get_coingecko_data('BTCUSDT')
+                    elif api_name == 'cryptocompare':
+                        result = await enhanced_scanner._get_cryptocompare_data('BTCUSDT')
+                    elif api_name == 'coinpaprika':
+                        result = await enhanced_scanner._get_coinpaprika_data('BTCUSDT')
+                    else:
+                        result = None
+                    
+                    test_results[api_name] = result is not None
+                except Exception as e:
+                    test_results[api_name] = False
+            
+            # Build results message
+            current_time = dt.now().strftime('%H:%M:%S')
+            
+            results_message = f"""
+🧪 <b>PUBLIC API TEST RESULTS</b>
+<b>Completed:</b> {current_time} UTC
+
+"""
+            
+            working_count = 0
+            total_count = len(test_results)
+            
+            for api_name, success in test_results.items():
+                api_display_name = enhanced_scanner.api_sources[api_name]['name']
+                if success:
+                    results_message += f"✅ <b>{api_display_name}</b> - Working\n"
+                    working_count += 1
+                else:
+                    results_message += f"❌ <b>{api_display_name}</b> - Failed\n"
+            
+            results_message += f"""
+<b>Summary:</b> {working_count}/{total_count} Public APIs working
+
+<b>Status:</b> {'🟢 Excellent' if working_count >= 2 else '🟡 Good' if working_count >= 1 else '❌ Critical'}
+"""
+            
+            if working_count == 0:
+                results_message += "\n⚠️ <b>All public APIs failed!</b>\nCheck your internet connection."
+            elif working_count < total_count:
+                results_message += f"\n💡 <b>Public API redundancy active</b>\nUsing {working_count} working APIs for data."
+            else:
+                results_message += "\n🎉 <b>All public APIs operational!</b>"
+            
+            results_message += "\n\n🔓 <b>No authentication required</b> - fully public access"
+            
+            # Create keyboard
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 TEST AGAIN", callback_data="test_all_apis"),
+                    InlineKeyboardButton("🌐 API STATUS", callback_data="detailed_api_status")
+                ],
+                [
+                    InlineKeyboardButton("🔙 BACK TO STATUS", callback_data="scanner_status")
+                ]
+            ]
+            
+            await query.edit_message_text(
+                results_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+        except Exception as e:
+            print(f"Error testing APIs: {e}")
+            await query.edit_message_text(
+                "❌ Error testing APIs. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 BACK TO STATUS", callback_data="scanner_status")
                 ]])
             )
     
@@ -2040,7 +2264,7 @@ Click below to toggle filters:"""
                     print("❌ API connectivity failed")
             except Exception as e:
                 print(f"❌ API status check failed: {e}")
-                api_status = {'connected': False, 'has_credentials': False, 'status_text': 'Issues'}
+                api_status = {'connected': False, 'public_api_mode': True, 'status_text': 'Issues'}
             
             # Get live data for top 5 pairs with timeout and sequential requests for public API
             live_data = []
@@ -2084,13 +2308,8 @@ Click below to toggle filters:"""
             
             # Use batch endpoint for better performance (ChatGPT analysis recommendation)
             try:
-                # Check if we have API credentials to adjust timeout
-                if not enhanced_scanner.api_key or not enhanced_scanner.api_secret:
-                    timeout = 12.0  # Conservative timeout for public API
-                    print("⚠️ Using public API - fetching data with batch endpoint")
-                else:
-                    timeout = 20.0  # Longer timeout for authenticated API  
-                    print("✅ Using authenticated API - fetching data with batch endpoint")
+                timeout = 15.0  # Optimized timeout for public APIs
+                print("🔓 Using public APIs - fetching data with batch endpoint from multiple sources")
                 
                 # Limit to top 5 pairs for speed
                 top_pairs = monitored_pairs[:5]
@@ -2135,9 +2354,9 @@ Click below to toggle filters:"""
             api_status_emoji = "🟢" if api_status['connected'] else "🔴"
             api_status_text = api_status['status_text']
             
-            # Add API credential info
-            if not api_status['has_credentials']:
-                api_status_text += " (No API keys)"
+            # Add public API mode info
+            if api_status.get('public_api_mode', True):
+                api_status_text += " (Public APIs)"
             
             message = f"""📊 <b>LIVE MARKET MONITOR</b>
             
@@ -2174,9 +2393,9 @@ Click below to toggle filters:"""
             if success_count < len(live_data):
                 message += f"\n⚠️ <b>Note:</b> {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
                 
-                # Add API credential suggestion if no credentials
-                if not api_status['has_credentials']:
-                    message += f"\n\n💡 <b>Tip:</b> Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better performance and fewer timeouts."
+                # Add public API mode information
+                if api_status.get('public_api_mode', True):
+                    message += f"\n\n🔓 <b>Public API Mode:</b> No authentication required - fully public access with multiple data sources for reliability."
                     message += f"\n🔗 <b>Using batch endpoint for better efficiency</b>"
             
             # Add refresh button and force scan option
@@ -2189,7 +2408,7 @@ Click below to toggle filters:"""
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=reply_markup
             )
             
@@ -2311,16 +2530,14 @@ Click below to toggle filters:"""
             # Get current API status
             api_status = await enhanced_scanner.get_api_status()
             
-            if api_status['has_credentials']:
-                status_message = "✅ **API Credentials: CONFIGURED**\n\n"
-                status_message += f"🔗 **Connection Status:** {'Connected' if api_status['connected'] else 'Issues'}\n"
-                status_message += f"⚡ **Rate Limit:** {api_status['rate_limit_info']['requests_per_second']:.0f} requests/second\n\n"
-                status_message += "Your API credentials are properly configured!"
-            else:
-                status_message = "❌ **API Credentials: NOT CONFIGURED**\n\n"
-                status_message += "⚠️ **Current Status:** Using public API with limited rate limits\n"
-                status_message += "⚠️ **Issues:** Frequent timeouts and 'Data unavailable' errors\n\n"
-                status_message += enhanced_scanner.get_api_setup_instructions()
+            # Public API mode - no credentials needed
+            status_message = "✅ **PUBLIC API MODE: ACTIVE**\n\n"
+            status_message += f"🔗 **Connection Status:** {'Connected' if api_status['connected'] else 'Issues'}\n"
+            status_message += f"📊 **Data Sources:** Multiple public APIs (CoinGecko, CryptoCompare, CoinPaprika)\n"
+            status_message += f"🔄 **Automatic Fallback:** Enabled for maximum reliability\n\n"
+            status_message += "✅ **No authentication required** - fully public access!\n"
+            status_message += "✅ **Multiple data sources** provide redundancy and reliability\n"
+            status_message += "✅ **Automatic switching** between APIs if one fails"
             
             # Use context.user_data to store hash instead of query object
             current_hash = hash(status_message)
