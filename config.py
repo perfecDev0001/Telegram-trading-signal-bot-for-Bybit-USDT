@@ -7,7 +7,7 @@ load_dotenv()
 class Config:
     # Telegram Bot Configuration
     BOT_TOKEN = os.getenv('BOT_TOKEN')
-    ADMIN_ID = int(os.getenv('ADMIN_ID', '7974254350'))  # Admin Telegram user ID
+    ADMIN_ID = int(os.getenv('ADMIN_ID', '7186880587'))  # Admin Telegram user ID
     SUBSCRIBER_ID = int(os.getenv('SUBSCRIBER_ID', '0'))  # Default subscriber ID
     CHANNEL_ID = int(os.getenv('CHANNEL_ID', '-1002674839519'))  # Default channel ID
     
