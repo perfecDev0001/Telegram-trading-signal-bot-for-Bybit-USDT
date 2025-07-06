@@ -377,40 +377,6 @@ class Database:
         except Exception as e:
             print(f"Error getting system stats: {e}")
             return {}
-    
-    def save_signal(self, signal) -> bool:
-        """Save a signal object to the database"""
-        try:
-            return self.add_signal(
-                symbol=signal.symbol,
-                signal_type=signal.signal_type,
-                price=signal.price,
-                change_percent=signal.change_percent,
-                volume=signal.volume,
-                message=signal.message
-            )
-        except Exception as e:
-            print(f"Error saving signal: {e}")
-            return False
-    
-    def update_scan_stats(self, signals_count: int) -> bool:
-        """Update scan statistics"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Update last scan time
-                cursor.execute('''
-                    UPDATE scanner_status 
-                    SET last_scan = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
-                    WHERE id = 1
-                ''')
-                
-                conn.commit()
-                return True
-        except Exception as e:
-            print(f"Error updating scan stats: {e}")
-            return False
 
 # Global database instance
 db = Database()

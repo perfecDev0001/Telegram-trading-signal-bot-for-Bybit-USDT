@@ -33,7 +33,6 @@ class MarketScheduler:
         self.last_scan_time = None
         self.scan_count = 0
         self.error_count = 0
-        self.service_url = None  # Will be set by main.py
         
         # Configure scheduler
         self.scheduler.add_jobstore('memory')
@@ -43,7 +42,7 @@ class MarketScheduler:
         self.scheduler.add_listener(self._job_error_listener, EVENT_JOB_ERROR)
         self.scheduler.add_listener(self._job_success_listener, EVENT_JOB_EXECUTED)
         
-        logger.info("✅ Market Scheduler initialized with comprehensive task management")
+        logger.info("✅ Market Scheduler initialized")
     
     def _job_error_listener(self, event):
         """Handle job errors"""
@@ -92,38 +91,17 @@ class MarketScheduler:
                 misfire_grace_time=30  # Allow 30 seconds grace time
             )
             
-            # Add comprehensive health check job (every 5 minutes)
+            # Add health check job (every 5 minutes)
             self.scheduler.add_job(
                 self._health_check,
                 trigger=IntervalTrigger(minutes=5),
                 id='health_check',
-                name='System Health Check',
-                replace_existing=True,
-                max_instances=1
-            )
-            
-            # Add bot health check job (every 2 minutes)
-            self.scheduler.add_job(
-                self._bot_health_check,
-                trigger=IntervalTrigger(minutes=2),
-                id='bot_health_check',
-                name='Bot Health Check',
-                replace_existing=True,
-                max_instances=1
-            )
-            
-            # Add keep-alive job (every 10 minutes)
-            self.scheduler.add_job(
-                self._keep_alive_ping,
-                trigger=IntervalTrigger(minutes=10),
-                id='keep_alive',
-                name='Keep Alive Ping',
+                name='Health Check',
                 replace_existing=True,
                 max_instances=1
             )
             
             logger.info(f"🚀 Market Scanner started with {Config.SCANNER_INTERVAL}s interval")
-            logger.info("📅 Added scheduled tasks: Health Check, Bot Health, Keep-Alive")
             
         except Exception as e:
             logger.error(f"❌ Failed to start scheduler: {e}")
@@ -189,14 +167,60 @@ class MarketScheduler:
             logger.error(f"❌ Error restarting scanner: {e}")
     
     async def _scan_markets(self):
-        """Main market scanning function - optimized to use enhanced scanner"""
+        """Main market scanning function"""
         try:
-            # Use the enhanced scanner's optimized scan method
-            await enhanced_scanner.perform_scheduled_scan(self.telegram_bot)
+            # Check if scanner is enabled
+            scanner_status = db.get_scanner_status()
+            if not scanner_status.get('is_running', True):
+                logger.info("📴 Scanner disabled, skipping scan")
+                return
+            
+            # Get monitored pairs
+            import json
+            monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
+            
+            logger.info(f"🔍 Starting scan of {len(monitored_pairs)} pairs...")
+            
+            # Scan all pairs
+            signals_found = []
+            for symbol in monitored_pairs:
+                try:
+                    # Add timeout to prevent hanging
+                    signal = await asyncio.wait_for(
+                        enhanced_scanner.scan_symbol_comprehensive(symbol),
+                        timeout=10.0  # 10 second timeout per symbol
+                    )
+                    
+                    if signal:
+                        signals_found.append(signal)
+                        logger.info(f"🎯 Signal found for {symbol}: {signal.signal_type} ({signal.strength:.1f}%)")
+                        
+                        # Send signal to recipients
+                        if self.telegram_bot:
+                            try:
+                                await enhanced_scanner.send_signal_to_recipients(signal, self.telegram_bot)
+                            except Exception as send_error:
+                                logger.error(f"❌ Error sending signal for {symbol}: {send_error}")
+                
+                except asyncio.TimeoutError:
+                    logger.warning(f"⏱️ Timeout scanning {symbol}")
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Error scanning {symbol}: {e}")
+                    continue
+            
+            # Log scan results
+            if signals_found:
+                logger.info(f"✅ Scan completed - {len(signals_found)} signals found")
+            else:
+                logger.debug("✅ Scan completed - no signals found")
+            
+            # Update database with scan timestamp
+            db.update_scanner_status(last_scan_time=datetime.now().isoformat())
             
         except Exception as e:
-            logger.error(f"❌ Market scan error: {e}")
-            # Don't sleep here - let scheduler handle timing
+            logger.error(f"❌ Error in market scan: {e}")
+            raise
     
     async def _health_check(self):
         """Periodic health check"""
@@ -229,43 +253,6 @@ class MarketScheduler:
             
         except Exception as e:
             logger.error(f"❌ Health check failed: {e}")
-    
-    async def _bot_health_check(self):
-        """Check Telegram bot health and restart if needed"""
-        try:
-            if self.telegram_bot and hasattr(self.telegram_bot, 'restart_if_needed'):
-                # This would be implemented in the TelegramBot class
-                logger.debug("🤖 Checking bot health...")
-                # For now, just log that we're checking
-                logger.debug("💚 Bot health check completed")
-            else:
-                logger.debug("⚠️ No bot instance available for health check")
-        except Exception as e:
-            logger.error(f"❌ Bot health check failed: {e}")
-    
-    async def _keep_alive_ping(self):
-        """Send keep-alive ping to prevent service sleep"""
-        try:
-            if self.service_url:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    try:
-                        async with session.get(f"{self.service_url}/health", timeout=10) as response:
-                            if response.status == 200:
-                                logger.info("🔄 Keep-alive ping successful")
-                            else:
-                                logger.warning(f"⚠️ Keep-alive ping failed: {response.status}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Keep-alive ping error: {e}")
-            else:
-                logger.debug("⚠️ No service URL configured for keep-alive")
-        except Exception as e:
-            logger.error(f"❌ Keep-alive ping failed: {e}")
-    
-    def set_service_url(self, url: str):
-        """Set the service URL for keep-alive pings"""
-        self.service_url = url
-        logger.info(f"🌐 Service URL set for keep-alive: {url}")
     
     async def force_scan(self) -> list:
         """Force an immediate scan of all monitored pairs"""

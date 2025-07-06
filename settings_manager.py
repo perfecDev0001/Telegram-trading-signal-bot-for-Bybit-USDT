@@ -60,8 +60,8 @@ class SettingsManager:
                 "scanner": asdict(ScannerSettings()),
                 "advanced_filters": asdict(AdvancedFilters()),
                 "api": {
-                    "public_api_mode": True,
-                    "data_sources": ["CoinGecko", "CryptoCompare", "CoinPaprika"],
+                    "bybit_api_key": Config.BYBIT_API_KEY or "",
+                    "bybit_secret": Config.BYBIT_SECRET or "",
                     "rate_limit": 0.1,
                     "timeout": 10
                 },
