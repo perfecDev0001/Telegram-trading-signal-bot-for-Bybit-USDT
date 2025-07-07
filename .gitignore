@@ -82,3 +82,4 @@ api_keys.txt
 # Runtime files
 *.pid
 *.sock
+backup
