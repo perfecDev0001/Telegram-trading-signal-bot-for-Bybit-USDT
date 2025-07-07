@@ -91,7 +91,10 @@ class Database:
                 'spread_filter': 'BOOLEAN DEFAULT 1',
                 'trend_match': 'BOOLEAN DEFAULT 1',
                 'liquidity_imbalance': 'BOOLEAN DEFAULT 1',
-                'rsi_momentum': 'BOOLEAN DEFAULT 1'
+                'rsi_momentum': 'BOOLEAN DEFAULT 1',
+                'scan_count': 'INTEGER DEFAULT 0',
+                'signals_sent': 'INTEGER DEFAULT 0',
+                'last_scan_time': 'TIMESTAMP'
             }
             
             for column_name, column_def in new_columns.items():
@@ -225,15 +228,29 @@ class Database:
             print(f"Error adding signal: {e}")
             return False
     
-    def get_recent_signals(self, limit: int = 10) -> List[Dict]:
-        """Get recent signals from the log"""
+    def get_recent_signals(self, limit: int = 10, exclude_test: bool = False) -> List[Dict]:
+        """Get recent signals from the log
+        
+        Args:
+            limit: Maximum number of signals to return
+            exclude_test: If True, exclude signals with type starting with 'TEST_'
+        """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT * FROM signals_log 
-                    ORDER BY timestamp DESC LIMIT ?
-                ''', (limit,))
+                
+                if exclude_test:
+                    cursor.execute('''
+                        SELECT * FROM signals_log 
+                        WHERE signal_type NOT LIKE 'TEST_%'
+                        ORDER BY timestamp DESC LIMIT ?
+                    ''', (limit,))
+                else:
+                    cursor.execute('''
+                        SELECT * FROM signals_log 
+                        ORDER BY timestamp DESC LIMIT ?
+                    ''', (limit,))
+                    
                 columns = [description[0] for description in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except Exception as e:
@@ -267,6 +284,24 @@ class Database:
         except Exception as e:
             print(f"Error setting {key}: {e}")
             return False
+    
+    def get_settings(self) -> Dict:
+        """Get all settings as a dictionary"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT key, value FROM settings')
+                settings = {}
+                for key, value in cursor.fetchall():
+                    # Try to parse JSON values
+                    try:
+                        settings[key] = json.loads(value)
+                    except (json.JSONDecodeError, TypeError):
+                        settings[key] = value
+                return settings
+        except Exception as e:
+            print(f"Error getting settings: {e}")
+            return {}
     
     # Scanner status methods
     def get_scanner_status(self) -> Dict:
@@ -325,6 +360,75 @@ class Database:
         """Log a signal (alias for add_signal for compatibility)"""
         return self.add_signal(symbol, signal_type, price, change_percent, volume, message)
     
+    def store_signal(self, signal_data: Dict) -> bool:
+        """Store a Bybit signal with extended data"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create extended signals table if it doesn't exist
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS bybit_signals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol TEXT NOT NULL,
+                        signal_type TEXT NOT NULL,
+                        entry_price REAL NOT NULL,
+                        strength REAL NOT NULL,
+                        tp_targets TEXT,
+                        filters_passed TEXT,
+                        volume_surge REAL,
+                        price_change REAL,
+                        rsi_value REAL,
+                        order_book_imbalance REAL,
+                        spread_percent REAL,
+                        whale_activity BOOLEAN,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # Insert the signal
+                cursor.execute('''
+                    INSERT INTO bybit_signals (
+                        symbol, signal_type, entry_price, strength, tp_targets,
+                        filters_passed, volume_surge, price_change, rsi_value,
+                        order_book_imbalance, spread_percent, whale_activity, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    signal_data.get('symbol'),
+                    signal_data.get('signal_type'),
+                    signal_data.get('entry_price'),
+                    signal_data.get('strength'),
+                    signal_data.get('tp_targets'),
+                    signal_data.get('filters_passed'),
+                    signal_data.get('volume_surge'),
+                    signal_data.get('price_change'),
+                    signal_data.get('rsi_value'),
+                    signal_data.get('order_book_imbalance'),
+                    signal_data.get('spread_percent'),
+                    signal_data.get('whale_activity'),
+                    signal_data.get('timestamp')
+                ))
+                
+                # Also store in regular signals_log for compatibility
+                cursor.execute('''
+                    INSERT INTO signals_log (symbol, signal_type, price, change_percent, volume, message)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    signal_data.get('symbol'),
+                    signal_data.get('signal_type'),
+                    signal_data.get('entry_price'),
+                    signal_data.get('price_change', 0),
+                    signal_data.get('volume_surge', 0),
+                    f"Strength: {signal_data.get('strength', 0):.0f}% | Filters: {len(json.loads(signal_data.get('filters_passed', '[]')))}"
+                ))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            print(f"Error storing Bybit signal: {e}")
+            return False
+    
     def get_signals_log(self, limit: int = 100) -> List[Dict]:
         """Get signals log with specified limit"""
         try:
@@ -377,6 +481,40 @@ class Database:
         except Exception as e:
             print(f"Error getting system stats: {e}")
             return {}
+    
+    def save_signal(self, signal) -> bool:
+        """Save a signal object to the database"""
+        try:
+            return self.add_signal(
+                symbol=signal.symbol,
+                signal_type=signal.signal_type,
+                price=signal.price,
+                change_percent=signal.change_percent,
+                volume=signal.volume,
+                message=signal.message
+            )
+        except Exception as e:
+            print(f"Error saving signal: {e}")
+            return False
+    
+    def update_scan_stats(self, signals_count: int) -> bool:
+        """Update scan statistics"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Update last scan time
+                cursor.execute('''
+                    UPDATE scanner_status 
+                    SET last_scan = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = 1
+                ''')
+                
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error updating scan stats: {e}")
+            return False
 
 # Global database instance
 db = Database()

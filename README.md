@@ -1,10 +1,10 @@
-# 🚀 Enhanced Bybit Scanner Bot
+# 🚀 Enhanced Public API Crypto Scanner Bot
 
-A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetuals with advanced market analysis, multi-layered filtering, and real-time alerts.
+A comprehensive Python-based Telegram trading signal bot using multiple public APIs with advanced market analysis, multi-layered filtering, and real-time alerts. **No API authentication required** - fully public access with automatic fallback between data sources.
 
 ## ✨ Core Features
 
-- **🔍 Real-time Market Scanning**: 1-minute interval monitoring of Bybit USDT perpetuals
+- **🔍 Real-time Market Scanning**: 1-minute interval monitoring using multiple public APIs
 - **🧠 Advanced Signal Detection**: 10+ layered filters with confluence-based scoring (0-100%)
 - **📱 Telegram Integration**: Automated alerts to admin, users, and private channels
 - **⚙️ Complete Admin Panel**: Full control via Telegram inline buttons
@@ -42,16 +42,16 @@ A comprehensive Python-based Telegram trading signal bot for Bybit USDT Perpetua
 ## 🎯 Signal Recipients
 
 **Configured Recipients:**
-- 👤 **Admin**:
-- 👤 **User**:
-- 📢 **Channel:
+- 👤 **Admin**: Set via `ADMIN_ID` environment variable
+- 👤 **Subscribers**: Managed through bot admin panel
+- 📢 **Private Channel**: Set via `CHANNEL_ID` environment variable
 
 ## ⚙️ Quick Setup
 
 ### 1. **Clone & Install**
 ```bash
 git clone <repository-url>
-cd Bybit_Scanner_Bot
+cd Public_API_Crypto_Scanner_Bot
 pip install -r requirements.txt
 ```
 
@@ -60,12 +60,19 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` file:
+Edit `.env` file with your values:
 ```env
+# REQUIRED: Get from @BotFather on Telegram
 BOT_TOKEN=your_telegram_bot_token
-ADMIN_ID=admin_id
-BYBIT_API_KEY=your_bybit_api_key_here
-BYBIT_SECRET=your_bybit_secret_key_here
+
+# REQUIRED: Get from @userinfobot on Telegram  
+ADMIN_ID=your_telegram_user_id
+
+# REQUIRED: Your private channel ID
+CHANNEL_ID=your_private_channel_id
+
+# OPTIONAL: Additional subscriber
+SUBSCRIBER_ID=0
 ```
 
 ### 3. **Verify Setup**
@@ -77,6 +84,21 @@ python setup_verification.py
 ```bash
 python main.py
 ```
+
+## 🚀 Cloud Deployment
+
+### Deploy to Render (Recommended)
+
+For 24/7 operation, deploy to Render.com:
+
+1. **Fork this repository** to your GitHub account
+2. **Follow the detailed deployment guide**: [DEPLOYMENT.md](./DEPLOYMENT.md)
+3. **Set environment variables** in Render dashboard:
+   - `BOT_TOKEN` (from @BotFather)
+   - `ADMIN_ID` (your Telegram user ID)
+   - `CHANNEL_ID` (your private channel ID)
+
+**📖 Complete deployment instructions with screenshots: [DEPLOYMENT.md](./DEPLOYMENT.md)**
 
 ## 📱 Admin Panel Features
 
@@ -150,8 +172,8 @@ Set in Render dashboard:
 ```
 BOT_TOKEN=your_bot_token
 ADMIN_ID=admin_id
-BYBIT_API_KEY=your_bybit_api_key_here
-BYBIT_SECRET=your_bybit_secret_key_here
+# Public API Configuration (No Authentication Required)
+USE_PUBLIC_APIS_ONLY=true
 ```
 
 ## 🧪 Testing
@@ -192,7 +214,7 @@ Tests include:
 ## 📁 Project Structure
 
 ```
-Bybit_Scanner_Bot/
+Public_API_Crypto_Scanner_Bot/
 ├── main.py                 # Main entry point
 ├── config.py              # Configuration settings
 ├── enhanced_scanner.py    # Market scanner engine
@@ -214,7 +236,7 @@ Bybit_Scanner_Bot/
 ### **Common Issues**
 1. **Bot not responding**: Check BOT_TOKEN in .env
 2. **No signals**: Verify thresholds and scanner status
-3. **API errors**: Check Bybit API connectivity
+3. **API errors**: Check public API connectivity
 4. **Database issues**: Run setup_verification.py
 
 ### **Debug Commands**

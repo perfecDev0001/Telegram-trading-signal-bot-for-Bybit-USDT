@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Bybit Scanner Bot - Main Entry Point
+Public API Scanner Bot - Main Entry Point
 
-This script runs both the Telegram bot and the Bybit scanner concurrently.
-The bot provides admin interface while the scanner monitors markets.
+This script runs both the Telegram bot and the public API scanner concurrently.
+The bot provides admin interface while the scanner monitors markets using public APIs.
+No authentication required - fully public access.
 """
 
 import asyncio
@@ -17,9 +18,12 @@ from datetime import datetime
 from aiohttp import web
 import threading
 
+# Import scheduler fix to handle ZoneInfo compatibility
+import scheduler_fix
+
 from config import Config
-from telegram_bot import TelegramBot
-from enhanced_scanner import enhanced_scanner
+from telegram_bot import TelegramBot  # Use the original telegram_bot implementation
+from enhanced_scanner import public_api_scanner
 from settings_manager import settings_manager
 from scheduler import market_scheduler
 
@@ -72,7 +76,7 @@ class BotManager:
             print("✅ No conflicts found")
     
     async def start_bot(self):
-        """Start the Telegram bot"""
+        """Start the Telegram bot with scheduled health checks"""
         try:
             print("🤖 Creating Telegram Bot...")
             
@@ -86,18 +90,17 @@ class BotManager:
             if await self.telegram_bot.start_bot():
                 print(f"🔑 Admin ID: {Config.ADMIN_ID}")
                 print(f"📱 Bot Token: {Config.BOT_TOKEN[:10]}***")
+                if Config.CHANNEL_ID != 0:
+                    print(f"📢 Private Channel: {Config.CHANNEL_ID}")
+                else:
+                    print("📢 Private Channel: Disabled")
+                if Config.SUBSCRIBER_ID != 0:
+                    print(f"👤 Default Subscriber: {Config.SUBSCRIBER_ID}")
+                print("✅ Bot started successfully - health checks will be handled by scheduler")
                 
-                # Keep the bot running with health monitoring
-                last_health_check = time.time()
+                # Wait for shutdown signal instead of continuous polling
                 while self.running:
-                    # Health check every 60 seconds
-                    if time.time() - last_health_check > 60:
-                        if not await self.telegram_bot.restart_if_needed():
-                            print("❌ Bot restart failed, stopping bot task")
-                            break
-                        last_health_check = time.time()
-                    
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(5)  # Reduced sleep time for faster shutdown response
             else:
                 print("❌ Failed to start Telegram bot")
                 
@@ -112,29 +115,12 @@ class BotManager:
             await self.telegram_bot.stop_bot()
     
     async def start_keepalive(self):
-        """Keep the service alive by self-pinging every 10 minutes"""
-        await asyncio.sleep(30)  # Wait for server to start
+        """Initialize keep-alive service - actual pinging handled by scheduler"""
+        print("💓 Keep-alive service initialized - will be handled by scheduler")
         
+        # Just wait for shutdown signal instead of continuous polling
         while self.running:
-            try:
-                if self.service_url:
-                    # Self-ping to prevent sleep
-                    async with aiohttp.ClientSession() as session:
-                        try:
-                            async with session.get(f"{self.service_url}/health", timeout=10) as response:
-                                if response.status == 200:
-                                    print("🔄 Keep-alive ping successful")
-                                else:
-                                    print(f"⚠️ Keep-alive ping failed: {response.status}")
-                        except Exception as e:
-                            print(f"⚠️ Keep-alive ping error: {e}")
-                
-                # Wait 10 minutes before next ping
-                await asyncio.sleep(600)  # 10 minutes
-                
-            except Exception as e:
-                print(f"❌ Keep-alive task error: {e}")
-                await asyncio.sleep(60)  # Wait 1 minute on error
+            await asyncio.sleep(10)  # Reduced sleep for faster shutdown response
 
     async def start_health_server(self):
         """Start HTTP health check server for Render deployment"""
@@ -154,7 +140,7 @@ class BotManager:
                 "status": "healthy",
                 "uptime_seconds": int(uptime),
                 "uptime_formatted": f"{int(uptime//3600)}h {int((uptime%3600)//60)}m {int(uptime%60)}s",
-                "bot_running": self.telegram_bot.is_running() if hasattr(self.telegram_bot, 'is_running') else True,
+                "bot_running": self.telegram_bot.is_running() if hasattr(self.telegram_bot, 'is_running') else False,
                 "scanner_status": "running" if self.running else "stopped",
                 "system": {
                     "cpu_percent": cpu_percent,
@@ -169,7 +155,7 @@ class BotManager:
         
         async def root_handler(request):
             """Root endpoint"""
-            return web.Response(text="🤖 Bybit Scanner Bot is running!\n\nHealthcheck: /health\nStatus: /status")
+            return web.Response(text="🤖 Public API Crypto Scanner Bot is running!\n\nHealthcheck: /health\nStatus: /status")
         
         async def status_handler(request):
             """Status endpoint with more details"""
@@ -179,7 +165,7 @@ class BotManager:
                 
                 status = {
                     "bot_info": {
-                        "name": "Bybit Scanner Bot",
+                        "name": "Public API Crypto Scanner Bot",
                         "version": "1.0.0",
                         "admin_id": Config.ADMIN_ID
                     },
@@ -208,30 +194,33 @@ class BotManager:
             site = web.TCPSite(runner, '0.0.0.0', port)
             await site.start()
             
-            # Set service URL for keep-alive
-            service_name = os.environ.get('RENDER_SERVICE_NAME', 'bybit-scanner-bot')
+            # Set service URL for keep-alive and pass it to scheduler
+            service_name = os.environ.get('RENDER_SERVICE_NAME', 'public-api-crypto-scanner')
             self.service_url = f"https://{service_name}.onrender.com"
+            
+            # Pass service URL to scheduler for keep-alive management
+            market_scheduler.set_service_url(self.service_url)
             
             print(f"✅ Health check server running on http://0.0.0.0:{port}")
             print(f"   - Health check: http://0.0.0.0:{port}/health")
             print(f"   - Status: http://0.0.0.0:{port}/status")
             print(f"   - Service URL: {self.service_url}")
             
-            # Keep the server running
+            # Keep the server running with reduced polling
             while self.running:
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)  # Reduced sleep for faster shutdown response
                 
         except Exception as e:
             print(f"❌ Failed to start health server: {e}")
             raise
     
     async def start_scanner(self):
-        """Start the Enhanced Bybit Scanner using APScheduler"""
+        """Start the Enhanced Public API Scanner using APScheduler"""
         try:
-            print("🔍 Starting Enhanced Bybit Scanner with APScheduler...")
-            print(f"⏱️ Scan interval: {Config.SCANNER_INTERVAL} seconds (5-minute candles)")
+            print("🔍 Starting Enhanced Public API Scanner with APScheduler...")
+            print(f"⏱️ Scan interval: {Config.SCANNER_INTERVAL} seconds")
             print(f"📊 Advanced filtering with confluence scoring")
-            print(f"🎯 Using Bybit API Key: {Config.BYBIT_API_KEY or 'Public Access'}")
+            print(f"🔓 Using Public APIs: No authentication required")
             
             # Initialize settings sync
             settings_manager.sync_to_database()
@@ -244,11 +233,11 @@ class BotManager:
             # Set the telegram bot instance in the scheduler
             # Try to get the bot instance, with fallback
             try:
-                if hasattr(self.telegram_bot, 'application') and self.telegram_bot.application:
-                    market_scheduler.telegram_bot = self.telegram_bot.application.bot
+                if hasattr(self.telegram_bot, 'bot') and self.telegram_bot.bot:
+                    market_scheduler.telegram_bot = self.telegram_bot.bot
                     print("✅ Scheduler linked to Telegram bot")
                 else:
-                    print("⚠️ Bot application not ready, scheduler will start without bot instance")
+                    print("⚠️ Bot instance not ready, scheduler will start without bot instance")
             except Exception as e:
                 print(f"⚠️ Could not link scheduler to bot: {e}")
                 print("📊 Scheduler will run without Telegram notifications")
@@ -256,24 +245,13 @@ class BotManager:
             # Start the scheduler
             await market_scheduler.start()
             
-            # Keep the scanner running
+            # Scanner is now fully managed by APScheduler - no continuous monitoring needed
+            print("✅ Scanner started successfully - APScheduler handles all timing and health checks")
+            print("📅 All monitoring is now handled by the scheduler itself")
+            # Just wait for shutdown signal instead of continuous health checking
             while self.running:
-                try:
-                    # Check if scheduler is still running
-                    if not market_scheduler.is_running:
-                        print("⚠️ Scheduler stopped, attempting restart...")
-                        await market_scheduler.start()
-                    
-                    # Wait a bit before checking again
-                    await asyncio.sleep(30)
-                    
-                except asyncio.CancelledError:
-                    print("🛑 Scanner cancelled")
-                    break
-                except Exception as e:
-                    print(f"❌ Scanner error: {e}, restarting in 30 seconds...")
-                    await asyncio.sleep(30)
-                    continue
+            
+                await asyncio.sleep(10)  # Reduced sleep for faster shutdown response
             
         except Exception as e:
             print(f"❌ Enhanced Scanner error: {e}")
@@ -284,14 +262,13 @@ class BotManager:
     async def run(self):
         """Run both bot and scanner concurrently"""
         print("=" * 60)
-        print("🚀 ENHANCED BYBIT SCANNER BOT STARTING")
+        print("🚀 ENHANCED PUBLIC API SCANNER BOT STARTING")
         print("=" * 60)
         print(f"⏰ Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"🎯 Admin ID: {Config.ADMIN_ID}")
-        # Don't print sensitive information directly
-        print(f"🔑 API Key: {Config.BYBIT_API_KEY[:5]}..." if Config.BYBIT_API_KEY else "No API Key configured")
-        print(f"🔐 API Secret: {'[CONFIGURED]' if Config.BYBIT_SECRET else '[NOT CONFIGURED]'}")
-        print(f"🎯 API Mode: {'Authenticated' if Config.BYBIT_API_KEY and Config.BYBIT_SECRET else 'Public'}")
+        print(f"🔓 API Mode: Public APIs Only (No Authentication Required)")
+        print(f"🌐 Data Sources: CoinGecko, CryptoCompare, CoinPaprika")
+        print(f"🔄 Automatic Fallback: Multiple APIs for reliability")
         
         # Get current settings
         system_status = settings_manager.get_system_status()
@@ -393,14 +370,12 @@ async def test_mode():
     print("🧪 Running in TEST MODE")
     print("🔍 Testing API connectivity...")
     
-    from enhanced_scanner import enhanced_scanner
-    
-    # Test API connectivity
-    api_test = await enhanced_scanner.test_api_connectivity()
-    if api_test:
-        print("✅ API connection successful!")
-    else:
-        print("❌ API connection failed!")
+    # Test Bybit API connectivity
+    try:
+        await bybit_scanner.initialize()
+        print("✅ Bybit API connection successful!")
+    except Exception as e:
+        print(f"❌ Bybit API connection failed: {e}")
     
     # Test bot initialization
     print("🤖 Testing bot initialization...")
@@ -413,8 +388,8 @@ async def test_mode():
         
         # Test a single scan
         try:
-            signal_count = await enhanced_scanner.run_single_scan(bot.application.bot)
-            print(f"✅ Force scan completed: {signal_count} signals generated")
+            signals = await bybit_scanner.scan_markets()
+            print(f"✅ Force scan completed: {len(signals)} signals generated")
         except Exception as e:
             print(f"❌ Force scan failed: {e}")
         

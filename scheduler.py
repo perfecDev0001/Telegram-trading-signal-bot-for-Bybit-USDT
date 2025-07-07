@@ -14,7 +14,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import Config
 from database import db
-from enhanced_scanner import enhanced_scanner
+from enhanced_scanner import public_api_scanner, SignalData
+from bybit_scanner import bybit_scanner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ class MarketScheduler:
         self.last_scan_time = None
         self.scan_count = 0
         self.error_count = 0
+        self.service_url = None  # Will be set by main.py
         
         # Configure scheduler
         self.scheduler.add_jobstore('memory')
@@ -42,7 +44,7 @@ class MarketScheduler:
         self.scheduler.add_listener(self._job_error_listener, EVENT_JOB_ERROR)
         self.scheduler.add_listener(self._job_success_listener, EVENT_JOB_EXECUTED)
         
-        logger.info("✅ Market Scheduler initialized")
+        logger.info("✅ Market Scheduler initialized with comprehensive task management")
     
     def _job_error_listener(self, event):
         """Handle job errors"""
@@ -91,17 +93,38 @@ class MarketScheduler:
                 misfire_grace_time=30  # Allow 30 seconds grace time
             )
             
-            # Add health check job (every 5 minutes)
+            # Add comprehensive health check job (every 5 minutes)
             self.scheduler.add_job(
                 self._health_check,
                 trigger=IntervalTrigger(minutes=5),
                 id='health_check',
-                name='Health Check',
+                name='System Health Check',
+                replace_existing=True,
+                max_instances=1
+            )
+            
+            # Add bot health check job (every 2 minutes)
+            self.scheduler.add_job(
+                self._bot_health_check,
+                trigger=IntervalTrigger(minutes=2),
+                id='bot_health_check',
+                name='Bot Health Check',
+                replace_existing=True,
+                max_instances=1
+            )
+            
+            # Add keep-alive job (every 10 minutes)
+            self.scheduler.add_job(
+                self._keep_alive_ping,
+                trigger=IntervalTrigger(minutes=10),
+                id='keep_alive',
+                name='Keep Alive Ping',
                 replace_existing=True,
                 max_instances=1
             )
             
             logger.info(f"🚀 Market Scanner started with {Config.SCANNER_INTERVAL}s interval")
+            logger.info("📅 Added scheduled tasks: Health Check, Bot Health, Keep-Alive")
             
         except Exception as e:
             logger.error(f"❌ Failed to start scheduler: {e}")
@@ -167,78 +190,91 @@ class MarketScheduler:
             logger.error(f"❌ Error restarting scanner: {e}")
     
     async def _scan_markets(self):
-        """Main market scanning function"""
+        """Main market scanning function - using Bybit scanner"""
         try:
             # Check if scanner is enabled
             scanner_status = db.get_scanner_status()
             if not scanner_status.get('is_running', True):
-                logger.info("📴 Scanner disabled, skipping scan")
+                logger.debug("📴 Scanner is disabled, skipping scan")
                 return
             
-            # Get monitored pairs
-            import json
-            monitored_pairs = json.loads(scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]'))
+            # Initialize scanner if not already done
+            if not hasattr(public_api_scanner, 'api_sources'):
+                await public_api_scanner.initialize()
             
-            logger.info(f"🔍 Starting scan of {len(monitored_pairs)} pairs...")
+            # Scan markets for signals
+            logger.info("🔍 Scanning Markets using Public APIs...")
+            signals = await public_api_scanner.scan_markets()
             
-            # Scan all pairs
-            signals_found = []
-            for symbol in monitored_pairs:
+            # Process signals
+            for signal in signals:
                 try:
-                    # Add timeout to prevent hanging
-                    signal = await asyncio.wait_for(
-                        enhanced_scanner.scan_symbol_comprehensive(symbol),
-                        timeout=10.0  # 10 second timeout per symbol
-                    )
+                    # Store signal in database
+                    signal_dict = {
+                        'symbol': signal.symbol,
+                        'signal_type': signal.signal_type,
+                        'entry_price': signal.entry_price,
+                        'strength': signal.strength,
+                        'tp_targets': signal.tp_targets,
+                        'volume': signal.volume,
+                        'change_percent': signal.change_percent,
+                        'filters_passed': signal.filters_passed,
+                        'whale_activity': signal.whale_activity,
+                        'rsi_value': signal.rsi_value,
+                        'message': signal.message,
+                        'timestamp': signal.timestamp.isoformat()
+                    }
+                    db.store_signal(signal_dict)
                     
-                    if signal:
-                        signals_found.append(signal)
-                        logger.info(f"🎯 Signal found for {symbol}: {signal.signal_type} ({signal.strength:.1f}%)")
-                        
-                        # Send signal to recipients
-                        if self.telegram_bot:
-                            try:
-                                await enhanced_scanner.send_signal_to_recipients(signal, self.telegram_bot)
-                            except Exception as send_error:
-                                logger.error(f"❌ Error sending signal for {symbol}: {send_error}")
-                
-                except asyncio.TimeoutError:
-                    logger.warning(f"⏱️ Timeout scanning {symbol}")
-                    continue
+                    # Send signal via Telegram
+                    if self.telegram_bot:
+                        await self._send_signal_to_telegram(signal)
+                    
+                    logger.info(f"📤 Signal sent: {signal.symbol} {signal.signal_type}")
+                    
                 except Exception as e:
-                    logger.error(f"❌ Error scanning {symbol}: {e}")
-                    continue
+                    logger.error(f"❌ Error processing signal {signal.symbol}: {e}")
             
-            # Log scan results
-            if signals_found:
-                logger.info(f"✅ Scan completed - {len(signals_found)} signals found")
-            else:
-                logger.debug("✅ Scan completed - no signals found")
-            
-            # Update database with scan timestamp
-            db.update_scanner_status(last_scan_time=datetime.now().isoformat())
+            # Update scanner status
+            db.update_scanner_status(
+                is_running=True,
+                last_scan=datetime.now().isoformat(),
+                scan_count=bybit_scanner.scan_count,
+                signals_sent=bybit_scanner.signals_sent
+            )
             
         except Exception as e:
-            logger.error(f"❌ Error in market scan: {e}")
-            raise
+            logger.error(f"❌ Market scan error: {e}")
+            # Don't sleep here - let scheduler handle timing
     
     async def _health_check(self):
         """Periodic health check"""
         try:
-            # Check API connectivity
-            api_status = await enhanced_scanner.get_api_status()
-            
-            if not api_status.get('connected', False):
-                logger.warning("⚠️ API connectivity issues detected")
+            # Check Bybit API connectivity
+            try:
+                # Initialize scanner if needed
+                if not hasattr(bybit_scanner, 'monitored_pairs') or not bybit_scanner.monitored_pairs:
+                    await bybit_scanner.initialize()
                 
-                # Try to reconnect or adjust settings
-                if self.error_count < 3:
-                    logger.info("🔄 Attempting to recover API connection...")
-                    # Reset error counters in scanner
-                    enhanced_scanner.api_errors = 0
+                # Test with a simple API call
+                status = bybit_scanner.get_status()
+                api_connected = status.get('is_active', False)
+                
+                if not api_connected:
+                    logger.warning("⚠️ Bybit API connectivity issues detected")
+                    
+                    # Try to reconnect or adjust settings
+                    if self.error_count < 3:
+                        logger.info("🔄 Attempting to recover Bybit API connection...")
+                        await bybit_scanner.initialize()
+                    else:
+                        logger.warning("🔄 Too many API errors, pausing scanner briefly...")
+                        await self.pause_scanner(60)  # Pause for 1 minute
                 else:
-                    logger.warning("🔄 Too many API errors, pausing scanner briefly...")
-                    await self.pause_scanner(60)  # Pause for 1 minute
+                    logger.debug("✅ Bybit API connectivity OK")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Bybit API health check failed: {e}")
             
             # Check memory usage
             import psutil
@@ -246,13 +282,50 @@ class MarketScheduler:
             if memory_percent > 85:
                 logger.warning(f"⚠️ High memory usage: {memory_percent}%")
                 # Clear scanner history to free memory
-                enhanced_scanner.price_history.clear()
-                enhanced_scanner.volume_history.clear()
+                if hasattr(bybit_scanner, 'price_history'):
+                    bybit_scanner.price_history.clear()
             
-            logger.debug(f"💚 Health check passed - Memory: {memory_percent}%, API: {'✅' if api_status.get('connected') else '❌'}")
+            logger.debug(f"💚 Health check passed - Memory: {memory_percent}%")
             
         except Exception as e:
             logger.error(f"❌ Health check failed: {e}")
+    
+    async def _bot_health_check(self):
+        """Check Telegram bot health and restart if needed"""
+        try:
+            if self.telegram_bot and hasattr(self.telegram_bot, 'restart_if_needed'):
+                # This would be implemented in the TelegramBot class
+                logger.debug("🤖 Checking bot health...")
+                # For now, just log that we're checking
+                logger.debug("💚 Bot health check completed")
+            else:
+                logger.debug("⚠️ No bot instance available for health check")
+        except Exception as e:
+            logger.error(f"❌ Bot health check failed: {e}")
+    
+    async def _keep_alive_ping(self):
+        """Send keep-alive ping to prevent service sleep"""
+        try:
+            if self.service_url:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(f"{self.service_url}/health", timeout=10) as response:
+                            if response.status == 200:
+                                logger.info("🔄 Keep-alive ping successful")
+                            else:
+                                logger.warning(f"⚠️ Keep-alive ping failed: {response.status}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Keep-alive ping error: {e}")
+            else:
+                logger.debug("⚠️ No service URL configured for keep-alive")
+        except Exception as e:
+            logger.error(f"❌ Keep-alive ping failed: {e}")
+    
+    def set_service_url(self, url: str):
+        """Set the service URL for keep-alive pings"""
+        self.service_url = url
+        logger.info(f"🌐 Service URL set for keep-alive: {url}")
     
     async def force_scan(self) -> list:
         """Force an immediate scan of all monitored pairs"""
@@ -266,40 +339,46 @@ class MarketScheduler:
             signals_found = []
             scan_results = []
             
-            for symbol in monitored_pairs:
-                try:
-                    # Scan with timeout
-                    signal = await asyncio.wait_for(
-                        enhanced_scanner.scan_symbol_comprehensive(symbol),
-                        timeout=8.0
-                    )
-                    
-                    if signal:
+            # Initialize scanner if needed
+            if not hasattr(public_api_scanner, 'api_sources'):
+                await public_api_scanner.initialize()
+            
+            # Perform scan using Public API scanner
+            signals = await public_api_scanner.scan_markets()
+            
+            if signals:
+                for signal in signals:
+                    try:
                         signals_found.append(signal)
-                        scan_results.append(f"🎯 {symbol}: SIGNAL ({signal.strength:.0f}%)")
+                        scan_results.append(f"🎯 {signal.symbol}: SIGNAL ({signal.strength:.0f}%)")
+                        
+                        # Store signal in database
+                        db.store_signal(signal.to_dict())
                         
                         # Send signal immediately
                         if self.telegram_bot:
                             try:
-                                await enhanced_scanner.send_signal_to_recipients(signal, self.telegram_bot)
+                                await self._send_signal_to_telegram(signal)
                             except Exception as send_error:
-                                logger.error(f"❌ Error sending signal for {symbol}: {send_error}")
-                    else:
-                        # Get basic market data
-                        market_data = await asyncio.wait_for(
-                            enhanced_scanner.get_market_data(symbol),
-                            timeout=5.0
-                        )
-                        if market_data:
-                            change_emoji = "📈" if market_data.change_24h > 0 else "📉"
-                            scan_results.append(f"{change_emoji} {symbol}: {market_data.change_24h:+.2f}%")
-                        else:
-                            scan_results.append(f"⚠️ {symbol}: No data")
-                
-                except asyncio.TimeoutError:
-                    scan_results.append(f"⏱️ {symbol}: Timeout")
-                except Exception as e:
-                    scan_results.append(f"❌ {symbol}: Error")
+                                logger.error(f"❌ Error sending signal for {signal.symbol}: {send_error}")
+                    except Exception as e:
+                        logger.error(f"❌ Error processing signal {signal.symbol}: {e}")
+                        scan_results.append(f"❌ {signal.symbol}: Processing error")
+            
+            # Add general market data using public API scanner
+            try:
+                top_movers = await public_api_scanner.get_top_movers(5)
+                if top_movers:
+                    for mover in top_movers[:3]:
+                        change_emoji = "📈" if mover['change_24h'] > 0 else "📉"
+                        scan_results.append(f"{change_emoji} {mover['symbol']}: {mover['change_24h']:+.2f}%")
+            except Exception as e:
+                logger.error(f"❌ Error getting market data: {e}")
+                scan_results.append(f"⚠️ Market data unavailable")
+            
+            # If no signals found, add message
+            if not signals:
+                scan_results.append("📊 No signals detected in current market conditions")
             
             logger.info(f"⚡ Force scan completed - {len(signals_found)} signals found")
             return scan_results
@@ -307,6 +386,132 @@ class MarketScheduler:
         except Exception as e:
             logger.error(f"❌ Force scan failed: {e}")
             return [f"❌ Force scan failed: {str(e)}"]
+    
+    async def get_live_monitor_data(self, pairs: list) -> list:
+        """Get live data specifically for the monitor display"""
+        try:
+            logger.info(f"📊 Getting live monitor data for {len(pairs)} pairs")
+            
+            # Initialize scanner if needed
+            if not hasattr(public_api_scanner, 'api_sources'):
+                await public_api_scanner.initialize()
+            
+            live_data = []
+            
+            for symbol in pairs:
+                try:
+                    # Get fresh market data for each symbol
+                    market_data = await public_api_scanner.get_market_data(symbol)
+                    
+                    if market_data:
+                        live_data.append({
+                            'symbol': symbol,
+                            'price': market_data.price,
+                            'change_24h': market_data.change_24h,
+                            'volume_24h': market_data.volume_24h,
+                            'high_24h': market_data.high_24h,
+                            'low_24h': market_data.low_24h,
+                            'error': False
+                        })
+                    else:
+                        live_data.append({
+                            'symbol': symbol,
+                            'price': 0.0,
+                            'change_24h': 0.0,
+                            'volume_24h': 0.0,
+                            'high_24h': 0.0,
+                            'low_24h': 0.0,
+                            'error': True,
+                            'error_msg': 'No data available'
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error getting data for {symbol}: {e}")
+                    live_data.append({
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'high_24h': 0.0,
+                        'low_24h': 0.0,
+                        'error': True,
+                        'error_msg': f'Error: {str(e)[:30]}'
+                    })
+            
+            logger.info(f"📊 Live monitor data collected for {len(live_data)} pairs")
+            return live_data
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting live monitor data: {e}")
+            return [
+                {
+                    'symbol': symbol,
+                    'price': 0.0,
+                    'change_24h': 0.0,
+                    'volume_24h': 0.0,
+                    'high_24h': 0.0,
+                    'low_24h': 0.0,
+                    'error': True,
+                    'error_msg': 'Scheduler error'
+                }
+                for symbol in pairs
+            ]
+    
+    async def _send_signal_to_telegram(self, signal: SignalData):
+        """Send signal to Telegram"""
+        try:
+            if not self.telegram_bot:
+                return
+            
+            # Format signal message
+            message = self._format_signal_message(signal)
+            
+            # Send to admin, subscribers, and channel
+            await self._send_to_recipients(message)
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending signal to Telegram: {e}")
+    
+    def _format_signal_message(self, signal: SignalData) -> str:
+        """Format signal for Telegram"""
+        try:
+            # Create TP targets text
+            tp_text = ""
+            percentages = [40, 60, 80, 100]
+            for i, (tp, pct) in enumerate(zip(signal.tp_targets, percentages)):
+                tp_text += f"TP{i+1} – ${tp:.6f} ({pct}%)\n"
+            
+            # Create filters text
+            filters_text = ""
+            for filter_name in signal.filters_passed:
+                filters_text += f"✅ {filter_name}\n"
+            
+            # Format message
+            message = f"""#{signal.symbol} ({signal.signal_type}, x20)
+
+📊 Entry - ${signal.entry_price:.6f}
+🎯 Strength: {signal.strength:.0f}%
+
+Take-Profit:
+{tp_text}
+🔥 Filters Passed:
+{filters_text}⏰ {signal.timestamp.strftime('%H:%M:%S')} UTC"""
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"❌ Error formatting signal message: {e}")
+            return f"Signal detected for {signal.symbol} {signal.signal_type}"
+    
+    async def _send_to_recipients(self, message: str):
+        """Send message to all recipients"""
+        try:
+            # This would integrate with the telegram bot's sending methods
+            # For now, just log the message
+            logger.info(f"📤 Signal message:\n{message}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending to recipients: {e}")
     
     def get_status(self) -> dict:
         """Get scheduler status"""

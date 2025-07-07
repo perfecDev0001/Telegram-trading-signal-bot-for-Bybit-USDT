@@ -60,8 +60,8 @@ class SettingsManager:
                 "scanner": asdict(ScannerSettings()),
                 "advanced_filters": asdict(AdvancedFilters()),
                 "api": {
-                    "bybit_api_key": Config.BYBIT_API_KEY or "",
-                    "bybit_secret": Config.BYBIT_SECRET or "",
+                    "public_api_mode": True,
+                    "data_sources": ["CoinGecko", "CryptoCompare", "CoinPaprika"],
                     "rate_limit": 0.1,
                     "timeout": 10
                 },
@@ -241,6 +241,41 @@ class SettingsManager:
             settings.pairs.remove(symbol.upper())
             return self.update_scanner_settings(pairs=settings.pairs)
         return False
+    
+    def get_monitored_pairs(self) -> List[str]:
+        """Get list of monitored trading pairs"""
+        settings = self.get_scanner_settings()
+        return settings.pairs
+    
+    def get_setting(self, key: str, default_value: Any = None) -> Any:
+        """Get a specific setting value with fallback"""
+        try:
+            data = self.load_json(self.settings_file)
+            
+            # Check in scanner settings first
+            if key in ['volume_threshold', 'pump_threshold', 'dump_threshold', 
+                      'breakout_threshold', 'scanner_status', 'pairs', 'tp_multipliers']:
+                return data.get('scanner', {}).get(key, default_value)
+            
+            # Check in advanced filters
+            if key in ['whale_tracking', 'spoofing_detection', 'spread_check', 
+                      'trend_match', 'volume_divergence', 'rsi_filter', 'ema_trend']:
+                return data.get('advanced_filters', {}).get(key, default_value)
+            
+            # Check in api settings
+            if key in ['public_api_mode', 'data_sources', 'rate_limit', 'timeout']:
+                return data.get('api', {}).get(key, default_value)
+            
+            # Check in telegram settings
+            if key in ['admin_id', 'special_user', 'channel_id']:
+                return data.get('telegram', {}).get(key, default_value)
+            
+            # If not found in any section, return default
+            return default_value
+            
+        except Exception as e:
+            print(f"❌ Error getting setting '{key}': {e}")
+            return default_value
     
     # Subscriber Management Methods
     def get_all_subscribers(self) -> List[Dict]:

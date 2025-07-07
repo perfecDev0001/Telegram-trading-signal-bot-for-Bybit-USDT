@@ -7,13 +7,13 @@ load_dotenv()
 class Config:
     # Telegram Bot Configuration
     BOT_TOKEN = os.getenv('BOT_TOKEN')
-    ADMIN_ID = int(os.getenv('ADMIN_ID', '7186880587'))  # Admin Telegram user ID
+    ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))  # Admin Telegram user ID - MUST be set
     SUBSCRIBER_ID = int(os.getenv('SUBSCRIBER_ID', '0'))  # Default subscriber ID
-    CHANNEL_ID = int(os.getenv('CHANNEL_ID', '-1002674839519'))  # Default channel ID
+    CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))  # Private channel ID - MUST be set
     
-    # Bybit API Configuration
-    BYBIT_API_KEY = os.getenv('BYBIT_API_KEY', '')
-    BYBIT_SECRET = os.getenv('BYBIT_SECRET', '')
+    # Public API Configuration (No Authentication Required)
+    # Using multiple public APIs for redundancy and reliability
+    USE_PUBLIC_APIS_ONLY = True
     
     # Scanner Configuration
     SCANNER_INTERVAL = int(os.getenv('SCANNER_INTERVAL', '60'))
@@ -44,7 +44,10 @@ class Config:
 
 # Validate critical configurations
 if not Config.BOT_TOKEN:
-    raise ValueError("BOT_TOKEN not found in environment variables!")
+    raise ValueError("❌ BOT_TOKEN not found in environment variables! Please set BOT_TOKEN in your environment.")
 
 if Config.ADMIN_ID == 0:
-    print("⚠️  WARNING: ADMIN_ID not set! Please update your .env file with your Telegram user ID")
+    raise ValueError("❌ ADMIN_ID not set! Please set ADMIN_ID in your environment variables with your Telegram user ID.")
+
+if Config.CHANNEL_ID == 0:
+    print("⚠️  WARNING: CHANNEL_ID not set! Private channel notifications will be disabled.")
