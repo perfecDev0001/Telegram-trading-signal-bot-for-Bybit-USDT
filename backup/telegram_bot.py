@@ -2,25 +2,19 @@ import asyncio
 import json
 import logging
 import os
-import ssl
-import certifi
 from datetime import datetime
 from typing import Dict, List
 
-# Apply SSL fix for Windows compatibility
-import ssl_fix
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler,
     ConversationHandler, ContextTypes, filters
 )
-from telegram.request import HTTPXRequest
+from telegram.constants import ParseMode
 
 from config import Config
 from database import db
-from enhanced_scanner import public_api_scanner
+from enhanced_scanner import enhanced_scanner
 from settings_manager import settings_manager, is_admin
 
 # Enable logging
@@ -38,23 +32,13 @@ logger = logging.getLogger(__name__)
 class TelegramBot:
     def __init__(self):
         try:
-            # Create HTTP request with extended timeouts for Windows compatibility
-            request = HTTPXRequest(
-                connection_pool_size=8,
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30,
-                pool_timeout=30,
-                http_version="1.1"
-            )
-            
-            # Create application with token, custom request, and disable job queue
-            self.application = Application.builder().token(Config.BOT_TOKEN).request(request).job_queue(None).build()
-            # Get the bot instance
-            self.bot = self.application.bot
+            # Build application without job queue to avoid weak reference issues
+            builder = Application.builder().token(Config.BOT_TOKEN)
+            # Disable job queue to avoid weak reference issues
+            builder.job_queue(None)
+            self.application = builder.build()
             self.setup_handlers()
             self._running = False
-            print("✅ TelegramBot initialized with SSL fix")
         except Exception as e:
             print(f"❌ Error initializing TelegramBot: {e}")
             raise
@@ -63,32 +47,29 @@ class TelegramBot:
         """Start the bot with proper error handling"""
         try:
             print("🤖 Initializing bot...")
+            await self.application.initialize()
             
-            # Quick bot test with extended timeout
+            # Quick bot test
             print("🔍 Testing bot connection...")
             try:
-                bot_info = await self.bot.get_me(
-                    read_timeout=30,
-                    write_timeout=30,
-                    connect_timeout=30
-                )
+                bot_info = await asyncio.wait_for(self.application.bot.get_me(), timeout=10)
                 print(f"✅ Bot connection successful: @{bot_info.username}")
             except Exception as e:
                 print(f"❌ Bot connection test failed: {e}")
-                print(f"   Error type: {type(e)}")
                 return False
             
             print("🚀 Starting bot application...")
-            
-            # Start the bot
-            await self.application.initialize()
             await self.application.start()
+            
+            print("📡 Starting polling...")
             await self.application.updater.start_polling(
                 drop_pending_updates=True,
-                timeout=60,
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30
+                allowed_updates=["message", "callback_query"],
+                timeout=30,  # 30 second timeout for getting updates
+                read_timeout=30,  # 30 second read timeout
+                write_timeout=30,  # 30 second write timeout
+                connect_timeout=30,  # 30 second connection timeout
+                pool_timeout=30  # 30 second pool timeout
             )
             
             self._running = True
@@ -112,9 +93,16 @@ class TelegramBot:
             print("🛑 Stopping bot...")
             self._running = False
             
-            # Stop polling
-            await self.application.updater.stop()
-            await self.application.stop()
+            # Stop polling first
+            if hasattr(self.application, 'updater') and self.application.updater:
+                if self.application.updater.running:
+                    await self.application.updater.stop()
+            
+            # Stop application
+            if self.application.running:
+                await self.application.stop()
+            
+            # Shutdown
             await self.application.shutdown()
             print("✅ Bot stopped successfully")
             
@@ -123,7 +111,7 @@ class TelegramBot:
     
     def is_running(self):
         """Check if bot is running"""
-        return self._running and self.application.running
+        return self._running and hasattr(self.application, 'updater') and self.application.updater and self.application.updater.running
     
     async def restart_if_needed(self):
         """Restart bot if it's not responsive"""
@@ -131,25 +119,17 @@ class TelegramBot:
             if not self.is_running():
                 print("🔄 Bot not running, attempting restart...")
                 await self.stop_bot()
-                # Sleep synchronously instead of using asyncio.sleep
-                import time
-                time.sleep(5)
+                await asyncio.sleep(5)
                 return await self.start_bot()
             else:
-                # Test bot responsiveness with extended timeout
+                # Test bot responsiveness
                 try:
-                    await self.bot.get_me(
-                        read_timeout=30,
-                        write_timeout=30,
-                        connect_timeout=30
-                    )
+                    await asyncio.wait_for(self.application.bot.get_me(), timeout=10)
                     return True
                 except Exception:
                     print("🔄 Bot not responsive, restarting...")
                     await self.stop_bot()
-                    # Sleep synchronously instead of using asyncio.sleep
-                    import time
-                    time.sleep(5)
+                    await asyncio.sleep(5)
                     return await self.start_bot()
         except Exception as e:
             print(f"❌ Error during bot restart: {e}")
@@ -265,11 +245,11 @@ class TelegramBot:
         # Handle settings callbacks that need conversation
         if data.startswith("settings_"):
             if data == "settings_tp_multipliers":
-                return self.handle_tp_multipliers_callback(query, context)
+                return await self.handle_tp_multipliers_callback(query, context)
             else:
-                return self.handle_settings_callback(query, data)
+                return await self.handle_settings_callback(query, data)
         elif data.startswith("threshold_"):
-            return self.handle_threshold_callback(query, data, context)
+            return await self.handle_threshold_callback(query, data, context)
         
         return ConversationHandler.END
     
@@ -359,9 +339,9 @@ class TelegramBot:
             return WAITING_REMOVE_SUBSCRIBER
             
         elif data == "subscribers_view_all":
-            await self.show_all_subscribers(query)
+            return await self.show_all_subscribers(query)
         elif data == "subscribers_export":
-            await self.export_subscribers(query)
+            return await self.export_subscribers(query)
         
         # Skip other conversation entry points - they should be handled by ConversationHandler
         conversation_entry_points = [
@@ -518,7 +498,7 @@ class TelegramBot:
                 parse_mode=ParseMode.HTML
             )
     
-    def handle_subscribers_callback(self, query, data):
+    async def handle_subscribers_callback(self, query, data):
         """Handle subscriber-related callbacks - this is now handled directly in handle_callback"""
         # This method is kept for backward compatibility but is no longer used
         return ConversationHandler.END
@@ -530,7 +510,7 @@ class TelegramBot:
             
             # Try to get user info
             try:
-                chat = context.bot.get_chat(user_id)
+                chat = await context.bot.get_chat(user_id)
                 username = chat.username
                 first_name = chat.first_name
                 last_name = chat.last_name
@@ -576,7 +556,7 @@ class TelegramBot:
                     welcome_message += f"• Signal strength: ≥70%\n\n"
                     welcome_message += f"🚀 Happy trading! 📊"
                     
-                    context.bot.send_message(
+                    await context.bot.send_message(
                         chat_id=user_id,
                         text=welcome_message,
                         parse_mode=ParseMode.HTML
@@ -652,20 +632,20 @@ class TelegramBot:
         )
         return ConversationHandler.END
     
-    def cancel_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cancel_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Cancel conversation via callback query"""
         query = update.callback_query
-        query.answer()
+        await query.answer()
         
         # Handle the callback normally (back to main or manage subscribers)
         if query.data == "back_to_main":
-            self.back_to_main(query)
+            await self.back_to_main(query)
         elif query.data == "manage_subscribers":
-            self.show_manage_subscribers(query)
+            await self.show_manage_subscribers(query)
         elif query.data == "settings":
-            self.show_settings(query)
+            await self.show_settings(query)
         elif query.data == "settings_pairs":
-            self.show_pairs_settings(query)
+            await self.show_pairs_settings(query)
         
         return ConversationHandler.END
     
@@ -1021,21 +1001,33 @@ Choose an option from the menu below:
     async def show_scanner_status(self, query):
         """Show current scanner status and statistics"""
         try:
-            # Immediately show a loading message
-            await query.edit_message_text("⏳ Loading Scanner Status...\n📊 Fetching real-time data...\n\n⚠️ Please do not take any action until information is received.")
-            
             # Get scanner status from database
             scanner_status = db.get_scanner_status()
             is_running = scanner_status.get('is_running', True)
+            last_scan = scanner_status.get('last_scan', 'Never')
+            
+            # Format last scan time
+            if last_scan and last_scan != 'Never':
+                try:
+                    # Convert ISO format to datetime
+                    from datetime import datetime as dt
+                    last_scan_dt = dt.fromisoformat(last_scan)
+                    last_scan = last_scan_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
             
             # Get monitored pairs
-            monitored_pairs_str = scanner_status.get('monitored_pairs', '["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]')
+            monitored_pairs_str = scanner_status.get('monitored_pairs', '[]')
             try:
                 import json
                 monitored_pairs = json.loads(monitored_pairs_str)
-            except json.JSONDecodeError:
-                # Fallback to default pairs if JSON parsing fails
-                monitored_pairs = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
+                pairs_count = len(monitored_pairs)
+                pairs_preview = ', '.join(monitored_pairs[:5])
+                if len(monitored_pairs) > 5:
+                    pairs_preview += f" and {len(monitored_pairs) - 5} more"
+            except:
+                pairs_count = 0
+                pairs_preview = "None"
             
             # Get thresholds
             pump_threshold = scanner_status.get('pump_threshold', 5.0)
@@ -1043,26 +1035,21 @@ Choose an option from the menu below:
             breakout_threshold = scanner_status.get('breakout_threshold', 3.0)
             volume_threshold = scanner_status.get('volume_threshold', 50.0)
             
-            # Use the scheduler to get real-time market data
-            from scheduler import market_scheduler
+            # Get recent signals
+            recent_signals = db.get_recent_signals(5)
+            signals_count = len(recent_signals)
             
-            # Get real-time data for the first 5 pairs
-            live_data = await market_scheduler.get_live_monitor_data(monitored_pairs[:5])
-            
-            # Format the last scan time
+            # Build status message with timestamp to ensure uniqueness
             from datetime import datetime as dt
             current_time = dt.now().strftime('%H:%M:%S')
-            last_scan = dt.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Build status message
             status_message = f"""
 📊 <b>SCANNER STATUS</b>
 
 <b>Current Status:</b> {'🟢 RUNNING' if is_running else '🔴 PAUSED'}
 <b>Last Scan:</b> {last_scan}
 <b>Last Updated:</b> {current_time} UTC
-<b>Monitored Pairs:</b> {len(monitored_pairs)} pairs
-<b>Pairs:</b> {', '.join(monitored_pairs[:5])}{f" and {len(monitored_pairs) - 5} more" if len(monitored_pairs) > 5 else ""}
+<b>Monitored Pairs:</b> {pairs_count} pairs
+<b>Pairs:</b> {pairs_preview}
 
 <b>Signal Thresholds:</b>
 • Pump: {pump_threshold}%
@@ -1070,23 +1057,24 @@ Choose an option from the menu below:
 • Breakout: {breakout_threshold}%
 • Volume: {volume_threshold}%
 
-<b>Real-Time Market Data:</b>
+<b>Recent Signals:</b> {signals_count} signals
 """
             
-            # Add real-time market data
-            if live_data:
-                for data in live_data:
-                    symbol = data.get('symbol', '')
-                    price = data.get('price', 0.0)
-                    change = data.get('change_24h', 0.0)
+            # Add recent signals if any
+            if signals_count > 0:
+                status_message += "\n<b>Latest Signals:</b>"
+                for signal in recent_signals:
+                    signal_time = signal.get('timestamp', '')
+                    if signal_time:
+                        try:
+                            # Convert to readable format
+                            signal_dt = dt.fromisoformat(signal_time.replace('Z', '+00:00'))
+                            signal_time = signal_dt.strftime('%m-%d %H:%M')
+                        except:
+                            pass
                     
-                    # Add emoji based on price change
-                    emoji = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
-                    
-                    status_message += f"\n• {emoji} {symbol}: ${price:.2f} ({change:.2f}%)"
-            else:
-                status_message += "\n• No real-time data available at the moment."
-                
+                    status_message += f"\n• {signal_time} {signal.get('symbol', '')} {signal.get('signal_type', '')}: {signal.get('change_percent', 0):.2f}%"
+            
             # Create keyboard with control buttons
             keyboard = [
                 [
@@ -1119,8 +1107,8 @@ Choose an option from the menu below:
     async def show_signals_log(self, query):
         """Show recent signals log"""
         try:
-            # Get recent signals from database (last 10), excluding test signals
-            recent_signals = db.get_recent_signals(10, exclude_test=True)
+            # Get recent signals from database (last 10)
+            recent_signals = db.get_recent_signals(10)
             signals_count = len(recent_signals)
             
             # Add timestamp to ensure message uniqueness - import datetime here to avoid conflicts
@@ -1582,7 +1570,7 @@ Choose an option from the menu below:
         except Exception as e:
             await query.edit_message_text(f"❌ Settings error: {e}")
     
-    def handle_threshold_callback(self, query, data, context):
+    async def handle_threshold_callback(self, query, data, context):
         """Handle threshold-related callbacks"""
         try:
             if data == "threshold_pump":
@@ -1591,7 +1579,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('pump_threshold', 5.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"🚀 **SET PUMP THRESHOLD**\n\n"
                     f"Enter new pump threshold percentage (e.g., `5.5`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1608,7 +1596,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('dump_threshold', -5.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"📉 **SET DUMP THRESHOLD**\n\n"
                     f"Enter new dump threshold percentage (e.g., `-6.0`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1624,7 +1612,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('breakout_threshold', 3.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"💥 **SET BREAK THRESHOLD**\n\n"
                     f"Enter new breakout threshold percentage (e.g., `4.0`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1640,7 +1628,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('volume_threshold', 50.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"📊 **SET VOLUME THRESHOLD**\n\n"
                     f"Enter new volume threshold percentage (e.g., `50`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1651,11 +1639,11 @@ Choose an option from the menu below:
                 context.user_data['threshold_type'] = 'volume'
                 return WAITING_THRESHOLD_CHANGE
             else:
-                self.show_threshold_settings(query)
+                await self.show_threshold_settings(query)
         except Exception as e:
-            query.edit_message_text(f"❌ Threshold error: {e}")
+            await query.edit_message_text(f"❌ Threshold error: {e}")
     
-    def handle_tp_multipliers_callback(self, query, context):
+    async def handle_tp_multipliers_callback(self, query, context):
         """Handle TP multipliers callback"""
         try:
             # Get current TP multipliers from database
@@ -1663,7 +1651,7 @@ Choose an option from the menu below:
             tp_multipliers_str = scanner_status.get('tp_multipliers', '[1.5, 3.0, 5.0, 7.5]')
             
             keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"🎯 **SET TP MULTIPLIERS**\n\n"
                 f"Enter new TP multipliers as comma-separated values (e.g., `1.5, 3.0, 5.0, 7.5`):\n\n"
                 f"Current values: {tp_multipliers_str}\n"
@@ -1674,7 +1662,7 @@ Choose an option from the menu below:
             context.user_data['waiting_for'] = 'tp_multipliers'
             return WAITING_TP_MULTIPLIERS
         except Exception as e:
-            query.edit_message_text(f"❌ TP multipliers error: {e}")
+            await query.edit_message_text(f"❌ TP multipliers error: {e}")
     
     async def handle_filter_toggle(self, query, data):
         """Handle advanced filter toggle"""
@@ -1701,7 +1689,7 @@ Choose an option from the menu below:
             }
             
             if filter_name not in filter_mappings:
-                query.edit_message_text("❌ Unknown filter!")
+                await query.edit_message_text("❌ Unknown filter!")
                 return
             
             db_key = filter_mappings[filter_name]
@@ -1715,7 +1703,7 @@ Choose an option from the menu below:
             status_text = "ENABLED" if new_state else "DISABLED"
             
             keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"🔄 <b>FILTER UPDATED!</b>\n\n"
                 f"🎯 <b>{filter_name.title()} Filter:</b> {status_emoji} {status_text}",
                 parse_mode='HTML',
@@ -1773,7 +1761,7 @@ Message:
             # Send file to user
             with open(temp_file, 'rb') as f:
                 # Create a new message with the document instead of editing the current one
-                query.message.reply_document(
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"📊 **Signals Log Export**\n📈 {len(signals)} signals exported\n⏰ Generated: {datetime.now().strftime('%H:%M:%S UTC')}"
@@ -1834,7 +1822,7 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
             # Send file to user
             with open(temp_file, 'rb') as f:
                 # Create a new message with the document instead of editing the current one
-                query.message.reply_document(
+                await query.message.reply_document(
                     document=f,
                     filename=f"bybit_subscribers_{dt.now().strftime('%Y%m%d_%H%M')}.txt",
                     caption=f"👥 **Subscriber List Export**\n📋 {len(active_subscribers)} subscribers exported\n⏰ Generated: {dt.now().strftime('%H:%M:%S UTC')}"
@@ -1854,8 +1842,7 @@ Status: {'✅ Active' if subscriber['is_active'] else '❌ Inactive'}
         try:
             # Handle different advanced menu options
             if data == "advanced_system_status":
-                await self.show_system_status(query)
-                return
+                return await self.show_system_status(query)
             
             # Get current advanced filter states
             scanner_status = db.get_scanner_status()
@@ -1929,10 +1916,10 @@ Click below to toggle filters:"""
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+            await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
             
         except Exception as e:
-            query.edit_message_text(f"❌ Error loading advanced settings: {e}")
+            await query.edit_message_text(f"❌ Error loading advanced settings: {e}")
     
     async def show_system_status(self, query):
         """Show comprehensive system status with back button"""
@@ -2021,11 +2008,12 @@ Click below to toggle filters:"""
             await query.edit_message_text(f"❌ Error loading system status: {e}")
     
     async def show_live_monitor(self, query):
-        """Show live market monitor for top pairs using Bybit API"""
+        """Show live market monitor for top pairs - optimized for speed and reliability"""
         try:
-            # Immediately show a loading message
-            await query.edit_message_text("⏳ Loading Live Bybit Monitor...\n📊 Fetching real-time data from Bybit...\n\n⚠️ Please do not take any action until information is received.")
+            # Immediately show a loading message to improve response speed
+            await query.edit_message_text("⏳ Loading Live Monitor...\n\n⚠️ Please do not take any action until information is received.")
             
+            from enhanced_scanner import enhanced_scanner
             import asyncio
             
             # Get monitored pairs
@@ -2038,33 +2026,83 @@ Click below to toggle filters:"""
                 # Fallback to default pairs if JSON parsing fails
                 monitored_pairs = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
             
-            # Use the scheduler's specialized live monitor data method
-            # This avoids timeout issues and uses the existing data collection system
-            from scheduler import market_scheduler
-            
+            # Get API status instead of just testing connectivity
+            api_status = None
             try:
-                # Use the scheduler's live monitor data method
-                live_data = await market_scheduler.get_live_monitor_data(monitored_pairs[:5])
-                # Fallback to basic structure
-                # Check if we got valid data
-                if not live_data:
-                    
-                    live_data = []
-                    for symbol in monitored_pairs[:5]:
-                        live_data.append({
-                            'symbol': symbol,
-                            'price': 0.0,
-                            'change_24h': 0.0,
-                            'volume_24h': 0.0,
-                            'high_24h': 0.0,
-                            'low_24h': 0.0,
-                            'error': True,
-                            'error_msg': 'No data available'
-                        })
-                        
+                print("⚡ Checking API status...")
+                api_status = await asyncio.wait_for(
+                    enhanced_scanner.get_api_status(),
+                    timeout=8.0  # Longer timeout for public API
+                )
+                if api_status['connected']:
+                    print("✅ API connectivity successful")
+                else:
+                    print("❌ API connectivity failed")
             except Exception as e:
-                # If scheduler fails, fall back to basic data
-                print(f"❌ Error using scheduler data: {e}")
+                print(f"❌ API status check failed: {e}")
+                api_status = {'connected': False, 'has_credentials': False, 'status_text': 'Issues'}
+            
+            # Get live data for top 5 pairs with timeout and sequential requests for public API
+            live_data = []
+            async def get_pair_data(symbol):
+                try:
+                    # Add timeout to prevent hanging
+                    market_data = await asyncio.wait_for(
+                        enhanced_scanner.get_market_data(symbol),
+                        timeout=5.0  # Reduced timeout for faster response
+                    )
+                    if market_data:
+                        return {
+                            'symbol': symbol,
+                            'price': market_data.price,
+                            'change_24h': market_data.change_24h,
+                            'volume_24h': market_data.volume_24h,
+                            'error': False
+                        }
+                except asyncio.TimeoutError:
+                    print(f"Timeout getting data for {symbol}")
+                    return {
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True,
+                        'error_msg': 'API timeout'
+                    }
+                except Exception as e:
+                    print(f"Error getting data for {symbol}: {e}")
+                    # Return basic data if API fails
+                    return {
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True,
+                        'error_msg': f'API Error: {str(e)[:30]}'
+                    }
+                return None
+            
+            # Use batch endpoint for better performance (ChatGPT analysis recommendation)
+            try:
+                # Check if we have API credentials to adjust timeout
+                if not enhanced_scanner.api_key or not enhanced_scanner.api_secret:
+                    timeout = 12.0  # Conservative timeout for public API
+                    print("⚠️ Using public API - fetching data with batch endpoint")
+                else:
+                    timeout = 20.0  # Longer timeout for authenticated API  
+                    print("✅ Using authenticated API - fetching data with batch endpoint")
+                
+                # Limit to top 5 pairs for speed
+                top_pairs = monitored_pairs[:5]
+                
+                # Use batch endpoint instead of individual requests (much more efficient)
+                print(f"📊 Fetching batch data for {len(top_pairs)} pairs: {', '.join(top_pairs)}")
+                live_data = await asyncio.wait_for(
+                    enhanced_scanner.get_batch_market_data(top_pairs),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                # If timeout, show basic data
                 live_data = []
                 for symbol in monitored_pairs[:5]:
                     live_data.append({
@@ -2072,26 +2110,42 @@ Click below to toggle filters:"""
                         'price': 0.0,
                         'change_24h': 0.0,
                         'volume_24h': 0.0,
-                        'high_24h': 0.0,
-                        'low_24h': 0.0,
                         'error': True,
-                        'error_msg': 'Scheduler error'
+                        'error_msg': 'Request timeout'
+                    })
+            except Exception as e:
+                # If any other error, show basic data
+                live_data = []
+                for symbol in monitored_pairs[:5]:
+                    live_data.append({
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change_24h': 0.0,
+                        'volume_24h': 0.0,
+                        'error': True,
+                        'error_msg': f'Error: {str(e)[:30]}'
                     })
             
-            # Format live monitor message with Bybit data
+            # Format live monitor message
             scanner_running = scanner_status.get('is_running', False)
             status_emoji = "🟢" if scanner_running else "🔴"
             status_text = "RUNNING" if scanner_running else "PAUSED"
             
             from datetime import datetime as dt
+            api_status_emoji = "🟢" if api_status['connected'] else "🔴"
+            api_status_text = api_status['status_text']
             
-            message = f"""📊 <b>LIVE BYBIT MONITOR</b>
+            # Add API credential info
+            if not api_status['has_credentials']:
+                api_status_text += " (No API keys)"
+            
+            message = f"""📊 <b>LIVE MARKET MONITOR</b>
             
 🤖 <b>Scanner Status:</b> {status_emoji} {status_text}
-🏢 <b>Exchange:</b> 🟢 Bybit Public API
+🌐 <b>API Status:</b> {api_status_emoji} {api_status_text}
 📅 <b>Updated:</b> {dt.now().strftime('%H:%M:%S UTC')}
 
-💹 <b>Top 5 USDT Perpetuals:</b>
+💹 <b>Top 5 Monitored Pairs:</b>
 """
             
             # Count successful data fetches
@@ -2110,30 +2164,20 @@ Click below to toggle filters:"""
                     change_emoji = "🟢" if data['change_24h'] >= 0 else "🔴"
                     volume_formatted = f"{data['volume_24h']:,.0f}" if data['volume_24h'] > 1000 else f"{data['volume_24h']:.2f}"
                     
-                    # RSI color coding
-                    rsi = data.get('rsi', 50.0)
-                    if rsi > 70:
-                        rsi_emoji = "🔴"  # Overbought
-                    elif rsi < 30:
-                        rsi_emoji = "🟢"  # Oversold
-                    else:
-                        rsi_emoji = "🟡"  # Neutral
-                    
-                    # Volume surge indicator
-                    volume_surge = data.get('volume_surge', 0.0)
-                    surge_emoji = "🔥" if volume_surge > 2.0 else "📊"
-                
                     message += f"""
 <b>{data['symbol']}</b>
-💰 ${data['price']:,.6f} | {change_emoji} {data['change_24h']:+.2f}%
-{surge_emoji} Vol: ${volume_formatted} | {rsi_emoji} RSI: {rsi:.1f}
+💰 ${data['price']:,.4f} | {change_emoji} {data['change_24h']:+.2f}%
+📊 Vol: ${volume_formatted}
 """
             
             # Add status message if some data failed
             if success_count < len(live_data):
                 message += f"\n⚠️ <b>Note:</b> {success_count}/{len(live_data)} pairs loaded successfully. Try refreshing."
-            else:
-                message += f"\n✅ <b>All data loaded from Bybit API</b>"
+                
+                # Add API credential suggestion if no credentials
+                if not api_status['has_credentials']:
+                    message += f"\n\n💡 <b>Tip:</b> Add BYBIT_API_KEY and BYBIT_SECRET to your .env file for better performance and fewer timeouts."
+                    message += f"\n🔗 <b>Using batch endpoint for better efficiency</b>"
             
             # Add refresh button and force scan option
             keyboard = [
@@ -2145,15 +2189,12 @@ Click below to toggle filters:"""
             
             await query.edit_message_text(
                 message,
-                parse_mode='HTML',
+                parse_mode='Markdown',
                 reply_markup=reply_markup
             )
             
         except Exception as e:
             # Provide a more helpful error message with safe formatting
-            print(f"❌ Error in show_live_monitor: {e}")
-            import traceback
-            traceback.print_exc()
             error_message = f"❌ Error loading live monitor\n\n"
             error_message += f"Error details: {str(e)[:100]}\n\n"
             error_message += "Please try again or check the API connection."
@@ -2185,67 +2226,45 @@ Click below to toggle filters:"""
                     )
     
     async def force_scan(self, query):
-        """Force an immediate scan of all monitored pairs using Public API scanner"""
+        """Force an immediate scan of all monitored pairs using scheduler"""
         try:
-            import asyncio
+            from scheduler import market_scheduler
             
             # Show immediate loading response
-            await query.edit_message_text("⚡ Force Scan Initiated...\n🔍 Scanning Markets with Public APIs...\n\n⚠️ Please do not take any action until information is received.")
+            await query.edit_message_text("⚡ Force Scan Initiated...\n🔍 Scanning monitored pairs...\n\n⚠️ Please do not take any action until information is received.")
             
-            async def perform_force_scan():
-                """Perform the force scan asynchronously"""
-                try:
-                    # Initialize scanner if needed
-                    if not hasattr(public_api_scanner, 'api_sources'):
-                        await public_api_scanner.initialize()
-                    
-                    # Use the real scanner functionality with force_scan=True parameter
-                    signals = await public_api_scanner.scan_markets(force_scan=True)
-                    
-                    # Get scanner status
-                    scanner_status = public_api_scanner.get_status()
-                    
-                    return signals, scanner_status
-                
-                except Exception as e:
-                    logger.error(f"❌ Force scan error: {e}")
-                    return [], {}
+            # Use scheduler's force_scan method
+            scan_results = await market_scheduler.force_scan()
             
-            # Run the async scan with extended timeout for force scan
-            signals, scanner_status = await asyncio.wait_for(
-                perform_force_scan(), 
-                timeout=30.0  # 30 second timeout for force scan
-            )
+            # Process results
+            if not scan_results:
+                scan_results = ["⚠️ No data available"]
             
             # Build result message
-            message = "⚡ MARKET FORCE SCAN COMPLETED\n\n"
+            message = "⚡ FORCE SCAN COMPLETED\n\n"
             
-            if signals:
-                message += f"🎯 {len(signals)} SIGNALS DETECTED\n\n"
-                
-                # Show signal details
-                for signal in signals[:3]:  # Show first 3 signals
-                    message += f"📊 {signal.symbol} {signal.signal_type}\n"
-                    message += f"💰 ${signal.entry_price:.6f} | 🎯 {signal.strength:.0f}%\n"
-                    message += f"✅ {len(signal.filters_passed)} filters passed\n\n"
-                
-                if len(signals) > 3:
-                    message += f"... and {len(signals) - 3} more signals\n\n"
-                
+            # Count signals and regular results
+            signal_count = sum(1 for result in scan_results if "SIGNAL" in result)
+            
+            if signal_count > 0:
+                message += f"🎯 {signal_count} SIGNALS FOUND\n\n"
             else:
-                message += "📊 NO SIGNALS DETECTED\n\n"
-                message += "📈 Market conditions do not meet signal criteria\n\n"
+                message += "📊 Market Analysis\n\n"
             
-            # Add scanner status
-            message += f"📊 Scanned: {scanner_status.get('monitored_pairs', 0)} pairs\n"
-            message += f"⏱️ Scan #{scanner_status.get('scan_count', 0)}\n"
-            message += f"🕐 Time: {datetime.now().strftime('%H:%M:%S UTC')}"
+            # Add results (limit to prevent message too long)
+            for result in scan_results[:15]:  # Show first 15 results
+                message += f"{result}\n"
+            
+            if len(scan_results) > 15:
+                message += f"\n... and {len(scan_results) - 15} more pairs"
+            
+            message += f"\n\n🕐 Scan Time: {datetime.now().strftime('%H:%M:%S UTC')}"
             
             # Add action buttons
             keyboard = [
                 [InlineKeyboardButton("⚡ SCAN AGAIN", callback_data="force_scan")],
                 [InlineKeyboardButton("📊 LIVE MONITOR", callback_data="live_monitor")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -2254,38 +2273,23 @@ Click below to toggle filters:"""
                 reply_markup=reply_markup
             )
             
-        except asyncio.TimeoutError:
-            error_msg = "❌ Force scan timed out (30s limit exceeded)"
-            keyboard = [
-                [InlineKeyboardButton("⚡ TRY AGAIN", callback_data="force_scan")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(error_msg, reply_markup=reply_markup)
-            
         except Exception as e:
             error_msg = f"❌ Force scan failed: {str(e)[:100]}"
             keyboard = [
-                [InlineKeyboardButton("⚡ TRY AGAIN", callback_data="force_scan")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(error_msg, reply_markup=reply_markup)
-            keyboard = [
                 [InlineKeyboardButton("🔄 TRY AGAIN", callback_data="force_scan")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                query.edit_message_text(
+                await query.edit_message_text(
                     error_msg,
                     reply_markup=reply_markup
                 )
             except Exception as edit_error:
                 # If editing fails, send a new message
                 try:
-                    query.bot.send_message(
+                    await query.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=error_msg,
                         reply_markup=reply_markup
@@ -2302,8 +2306,10 @@ Click below to toggle filters:"""
                 "⏳ Loading API setup...\n\n⚠️ Please do not take any action until information is received."
             )
             
-            # Get current API status for Bybit
-            api_status = {'has_credentials': False, 'connected': True, 'status_text': 'Bybit Public API'}
+            from enhanced_scanner import enhanced_scanner
+            
+            # Get current API status
+            api_status = await enhanced_scanner.get_api_status()
             
             if api_status['has_credentials']:
                 status_message = "✅ **API Credentials: CONFIGURED**\n\n"
@@ -2311,7 +2317,10 @@ Click below to toggle filters:"""
                 status_message += f"⚡ **Rate Limit:** {api_status['rate_limit_info']['requests_per_second']:.0f} requests/second\n\n"
                 status_message += "Your API credentials are properly configured!"
             else:
-                status_message = public_api_scanner.get_api_setup_instructions()
+                status_message = "❌ **API Credentials: NOT CONFIGURED**\n\n"
+                status_message += "⚠️ **Current Status:** Using public API with limited rate limits\n"
+                status_message += "⚠️ **Issues:** Frequent timeouts and 'Data unavailable' errors\n\n"
+                status_message += enhanced_scanner.get_api_setup_instructions()
             
             # Use context.user_data to store hash instead of query object
             current_hash = hash(status_message)
@@ -2359,7 +2368,7 @@ Click below to toggle filters:"""
             error_msg = f"❌ Error loading API setup: {str(e)[:100]}"
             keyboard = [
                 [InlineKeyboardButton("🔄 TRY AGAIN", callback_data="api_setup")],
-                [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")]
+                [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_to_main")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -2378,7 +2387,7 @@ Click below to toggle filters:"""
                     )
                 except Exception:
                     # Last resort: send a simple message
-                    query.bot.send_message(
+                    await query.bot.send_message(
                         chat_id=query.message.chat_id,
                         text="❌ API Setup Error. Please try again later."
                     )
@@ -2493,15 +2502,12 @@ Click below to toggle filters:"""
                 return ConversationHandler.END
             
             # Validate with Bybit API
+            from enhanced_scanner import enhanced_scanner
             try:
-                # Check if the pair is valid (simplified validation)
-                if not text.endswith('USDT'):
-                    await update.message.reply_text(f"❌ **Pair {text} must end with USDT!**", parse_mode='Markdown')
+                market_data = await enhanced_scanner.get_market_data(text)
+                if not market_data:
+                    await update.message.reply_text(f"❌ **Pair {text} not found on Bybit!**")
                     return ConversationHandler.END
-                
-                # Additional validation can be added here
-                # For now, we'll assume USDT pairs are valid
-                
             except Exception as e:
                 await update.message.reply_text(f"❌ **Error validating pair:** {e}")
                 return ConversationHandler.END
@@ -2512,7 +2518,7 @@ Click below to toggle filters:"""
             
             # Check if already exists
             if text in current_pairs:
-                update.message.reply_text(f"⚠️ **{text} is already being monitored!**")
+                await update.message.reply_text(f"⚠️ **{text} is already being monitored!**")
                 return ConversationHandler.END
             
             # Add the new pair
@@ -2521,7 +2527,7 @@ Click below to toggle filters:"""
             # Update database
             db.update_scanner_setting('monitored_pairs', json.dumps(current_pairs))
             
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"✅ **Pair Added Successfully!**\n\n"
                 f"➕ **Added:** {text}\n"
                 f"📊 **Current Price:** ${market_data.price:,.4f}\n"
@@ -2532,7 +2538,7 @@ Click below to toggle filters:"""
             )
             
         except Exception as e:
-            update.message.reply_text(f"❌ Error adding pair: {e}")
+            await update.message.reply_text(f"❌ Error adding pair: {e}")
         
         return ConversationHandler.END
     
@@ -2547,7 +2553,7 @@ Click below to toggle filters:"""
             
             # Check if pair exists
             if text not in current_pairs:
-                update.message.reply_text(
+                await update.message.reply_text(
                     f"❌ **{text} is not in the monitored pairs!**\n\n"
                     f"📋 **Current pairs:** {', '.join(current_pairs)}",
                     parse_mode='Markdown'
@@ -2556,7 +2562,7 @@ Click below to toggle filters:"""
             
             # Prevent removing all pairs
             if len(current_pairs) <= 1:
-                update.message.reply_text("❌ **Cannot remove the last pair!** At least one pair must be monitored.")
+                await update.message.reply_text("❌ **Cannot remove the last pair!** At least one pair must be monitored.")
                 return ConversationHandler.END
             
             # Remove the pair
@@ -2565,7 +2571,7 @@ Click below to toggle filters:"""
             # Update database
             db.update_scanner_setting('monitored_pairs', json.dumps(current_pairs))
             
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"✅ **Pair Removed Successfully!**\n\n"
                 f"➖ **Removed:** {text}\n\n"
                 f"🔍 **Remaining Monitored Pairs:** {len(current_pairs)}\n"
@@ -2574,7 +2580,7 @@ Click below to toggle filters:"""
             )
             
         except Exception as e:
-            update.message.reply_text(f"❌ Error removing pair: {e}")
+            await update.message.reply_text(f"❌ Error removing pair: {e}")
         
         return ConversationHandler.END
     
@@ -2601,7 +2607,7 @@ Click below to toggle filters:"""
                     raise ValueError("Multipliers must be between 0.1% and 20.0%")
                 
             except (ValueError, IndexError) as e:
-                update.message.reply_text(
+                await update.message.reply_text(
                     "❌ **Invalid format!**\n\n"
                     "Please enter 4 comma-separated percentages:\n"
                     "• `1.5, 3.0, 5.0, 7.5`\n"
@@ -2622,7 +2628,7 @@ Click below to toggle filters:"""
             new_tp_str = json.dumps(multipliers)
             db.update_scanner_setting('tp_multipliers', new_tp_str)
             
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"✅ **TP MULTIPLIERS Updated!**\n\n"
                 f"📊 **Previous:** {current_tp}\n"
                 f"🎯 **New:** {new_tp_str}\n\n"
@@ -2635,17 +2641,17 @@ Click below to toggle filters:"""
             )
             
         except Exception as e:
-            update.message.reply_text(f"❌ Error updating TP multipliers: {e}")
+            await update.message.reply_text(f"❌ Error updating TP multipliers: {e}")
         
         return ConversationHandler.END
     
-    def handle_settings_callback(self, query, data):
+    async def handle_settings_callback(self, query, data):
         """Handle settings-related callbacks that start conversations"""
         try:
             if data == "settings_add_pair":
                 # Start add pair conversation
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     "➕ **ADD NEW TRADING PAIR**\n\n"
                     "Please send the trading pair symbol (e.g., `BTCUSDT`, `ETHUSDT`):\n\n"
                     "**Format:** Symbol must end with USDT\n"
@@ -2666,7 +2672,7 @@ Click below to toggle filters:"""
                 
                 if not monitored_pairs:
                     keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                    query.edit_message_text(
+                    await query.edit_message_text(
                         "❌ **No Pairs to Remove**\n\nThere are no monitored pairs to remove.",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
@@ -2674,7 +2680,7 @@ Click below to toggle filters:"""
                 
                 pairs_list = '\n'.join([f"• {pair}" for pair in monitored_pairs])
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"➖ REMOVE TRADING PAIR\n\n"
                     f"Current monitored pairs:\n{pairs_list}\n\n"
                     f"Please send the trading pair symbol to remove:",
@@ -2684,155 +2690,47 @@ Click below to toggle filters:"""
                 
             else:
                 # Unknown settings callback
-                query.edit_message_text("❌ Unknown settings option")
+                await query.edit_message_text("❌ Unknown settings option")
                 return ConversationHandler.END
                 
         except Exception as e:
-            query.edit_message_text(f"❌ Settings error: {e}")
+            await query.edit_message_text(f"❌ Settings error: {e}")
             return ConversationHandler.END
     
     async def test_signal(self, query):
-        """Send a test signal to verify delivery using real scan data"""
+        """Send a test signal to verify delivery"""
         try:
-            await query.edit_message_text("🧪 <b>SENDING TEST SIGNAL...</b>\n\n⏳ Generating real signal data...", parse_mode=ParseMode.HTML)
+            await query.edit_message_text("🧪 <b>SENDING TEST SIGNAL...</b>\n\n⏳ Please wait...", parse_mode=ParseMode.HTML)
             
-            # Try to get real scan data from the enhanced scanner
-            test_signal_data = None
+            # Create a test signal
+            test_signal_data = {
+                'symbol': 'BTCUSDT',
+                'signal_type': 'LONG',
+                'entry_price': 50000.00,
+                'strength': 85.0,
+                'tp_targets': [50750.00, 51500.00, 52500.00, 53750.00],
+                'filters_passed': [
+                    'Breakout Pattern',
+                    'Volume Surge',
+                    'Order Book Imbalance',
+                    'Whale Activity',
+                    'Range Break (>1.2%)',
+                    'Liquidity Support (3x)',
+                    'Trend Alignment',
+                    'RSI Filter (65)',
+                    'No Volume Divergence',
+                    'Tight Spread'
+                ]
+            }
             
-            # First, try to get recent real signal from database
-            try:
-                recent_signals = db.get_recent_signals(limit=5, exclude_test=True)
-                if recent_signals:
-                    # Use the most recent real signal
-                    latest_signal = recent_signals[0]
-                    test_signal_data = {
-                        'symbol': latest_signal['symbol'],
-                        'signal_type': latest_signal['signal_type'],
-                        'entry_price': latest_signal['price'],
-                        'strength': latest_signal.get('strength', 75.0),
-                        'change_percent': latest_signal.get('change_percent', 0.0),
-                        'volume': latest_signal.get('volume', 0.0),
-                        'tp_targets': [
-                            latest_signal['price'] * 1.015,  # 1.5%
-                            latest_signal['price'] * 1.030,  # 3.0%
-                            latest_signal['price'] * 1.050,  # 5.0%
-                            latest_signal['price'] * 1.075   # 7.5%
-                        ] if latest_signal['signal_type'] == 'LONG' else [
-                            latest_signal['price'] * 0.985,  # -1.5%
-                            latest_signal['price'] * 0.970,  # -3.0%
-                            latest_signal['price'] * 0.950,  # -5.0%
-                            latest_signal['price'] * 0.925   # -7.5%
-                        ],
-                        'filters_passed': [
-                            'Real Market Data',
-                            'Price Movement',
-                            'Volume Analysis',
-                            'Technical Indicators',
-                            'Public API Source'
-                        ]
-                    }
-                    print(f"✅ Using recent real signal: {latest_signal['symbol']} {latest_signal['signal_type']}")
-            except Exception as e:
-                print(f"⚠️ Error getting recent signals: {e}")
-            
-            # If no recent signals, try to generate a new real signal with timeout
-            if not test_signal_data:
-                try:
-                    print("🔍 Generating new real signal...")
-                    # Use the scanner to generate a real signal
-                    scanner_signals = await asyncio.wait_for(
-                        public_api_scanner.scan_markets(force_scan=True),
-                        timeout=10.0  # 10 second timeout
-                    )
-                    if scanner_signals:
-                        signal = scanner_signals[0]  # Use the first signal
-                        test_signal_data = {
-                            'symbol': signal.symbol,
-                            'signal_type': signal.signal_type,
-                            'entry_price': signal.entry_price,
-                            'strength': signal.strength,
-                            'change_percent': signal.change_percent,
-                            'volume': signal.volume,
-                            'tp_targets': signal.tp_targets,
-                            'filters_passed': signal.filters_passed
-                        }
-                        print(f"✅ Generated new real signal: {signal.symbol} {signal.signal_type}")
-                except asyncio.TimeoutError:
-                    print("⚠️ Scanner timeout - falling back to real market data")
-                except Exception as e:
-                    print(f"⚠️ Error generating new signal: {e}")
-            
-            # Fallback to enhanced static data if no real data is available
-            if not test_signal_data:
-                print("⚠️ No real signals available, using enhanced static data...")
-                # Get real market data for BTCUSDT as fallback
-                try:
-                    import aiohttp
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get('https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT') as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                ticker = data['result']['list'][0]
-                                current_price = float(ticker['lastPrice'])
-                                change_24h = float(ticker['price24hPcnt']) * 100
-                                volume_24h = float(ticker['volume24h'])
-                                
-                                test_signal_data = {
-                                    'symbol': 'BTCUSDT',
-                                    'signal_type': 'LONG' if change_24h > 0 else 'SHORT',
-                                    'entry_price': current_price,
-                                    'strength': min(85.0, 60.0 + abs(change_24h) * 5),
-                                    'change_percent': change_24h,
-                                    'volume': volume_24h,
-                                    'tp_targets': [
-                                        current_price * 1.015,  # 1.5%
-                                        current_price * 1.030,  # 3.0%
-                                        current_price * 1.050,  # 5.0%
-                                        current_price * 1.075   # 7.5%
-                                    ] if change_24h > 0 else [
-                                        current_price * 0.985,  # -1.5%
-                                        current_price * 0.970,  # -3.0%
-                                        current_price * 0.950,  # -5.0%
-                                        current_price * 0.925   # -7.5%
-                                    ],
-                                    'filters_passed': [
-                                        'Real Market Data',
-                                        'Live Price Feed',
-                                        'Volume Analysis',
-                                        'Technical Indicators',
-                                        'Bybit API Source'
-                                    ]
-                                }
-                                print(f"✅ Using real market data: {current_price:.2f} USD, {change_24h:+.2f}%")
-                except Exception as e:
-                    print(f"⚠️ Error getting real market data: {e}")
-                    # Ultimate fallback with warning
-                    test_signal_data = {
-                        'symbol': 'BTCUSDT',
-                        'signal_type': 'LONG',
-                        'entry_price': 50000.00,
-                        'strength': 85.0,
-                        'change_percent': 2.5,
-                        'volume': 1000000.0,
-                        'tp_targets': [50750.00, 51500.00, 52500.00, 53750.00],
-                        'filters_passed': [
-                            '⚠️ FALLBACK DATA',
-                            'Static Test Signal',
-                            'Demo Mode Active'
-                        ]
-                    }
-            
-            # Format test signal message with real data
-            change_str = f" ({test_signal_data['change_percent']:+.2f}%)" if test_signal_data.get('change_percent') else ""
-            volume_str = f"\n💰 Volume: ${test_signal_data['volume']:,.0f}" if test_signal_data.get('volume', 0) > 0 else ""
-            
+            # Format test signal message
             test_message = f"""
 🧪 <b>TEST SIGNAL</b>
 
-🔥 #{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20) 🔥{change_str}
+🔥 #{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20) 🔥
 
 📊 Entry - ${test_signal_data['entry_price']:.2f}
-🎯 Strength: {test_signal_data['strength']:.0f}%{volume_str}
+🎯 Strength: {test_signal_data['strength']:.0f}%
 
 Take-Profit:
 🥉 TP1 – ${test_signal_data['tp_targets'][0]:.2f} (40%)
@@ -2896,20 +2794,15 @@ Take-Profit:
                 except Exception as e:
                     logger.warning(f"Failed to send test signal to channel: {e}")
             
-            # Log test signal with real data
+            # Log test signal
             db.add_signal(
                 symbol=test_signal_data['symbol'],
                 signal_type=f"TEST_{test_signal_data['signal_type']}",
                 price=test_signal_data['entry_price'],
-                change_percent=test_signal_data.get('change_percent', 0.0),
-                volume=test_signal_data.get('volume', 0.0),
-                message=f"Test signal - Strength: {test_signal_data['strength']:.0f}% - Real Data"
+                change_percent=0.0,
+                volume=0.0,
+                message=f"Test signal - Strength: {test_signal_data['strength']:.0f}%"
             )
-            
-            # Add real data indicators
-            data_source = "📊 Real Market Data" if test_signal_data.get('change_percent') and test_signal_data.get('volume', 0) > 0 else "⚠️ Static Test Data"
-            price_change = f" ({test_signal_data['change_percent']:+.2f}%)" if test_signal_data.get('change_percent') else ""
-            volume_info = f"\n• Volume: ${test_signal_data['volume']:,.0f}" if test_signal_data.get('volume', 0) > 0 else ""
             
             success_message = f"""
 ✅ <b>TEST SIGNAL SENT SUCCESSFULLY!</b>
@@ -2923,11 +2816,9 @@ Take-Profit:
 
 📋 <b>Test Signal Details:</b>
 • Symbol: {test_signal_data['symbol']}
-• Type: {test_signal_data['signal_type']}{price_change}
-• Entry Price: ${test_signal_data['entry_price']:.2f}
-• Strength: {test_signal_data['strength']:.0f}%{volume_info}
+• Type: {test_signal_data['signal_type']}
+• Strength: {test_signal_data['strength']:.0f}%
 • Filters: {len(test_signal_data['filters_passed'])} passed
-• Data Source: {data_source}
 
 🔄 Check your messages to verify delivery.
 """

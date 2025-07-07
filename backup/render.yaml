@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: bybit-scanner-bot
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python deploy_clean.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 7341495471:AAF6lxa_awyOvjMIv3oSVRS5COadq2TEI_o
+      - key: ADMIN_ID
+        value: 7974254350
+      - key: SUBSCRIBER_ID
+        value: 7452976451
+      - key: CHANNEL_ID
+        value: -1002674839519
+      - key: BYBIT_API_KEY
+        value: JPXoPSCRNVG7rw4ndl
+      - key: BYBIT_SECRET
+        value: ZG19udpmBFhB56yJkqiYQIrP5Ie9UKu9u2ke
+      - key: SCANNER_INTERVAL
+        value: 60
+      - key: PUMP_THRESHOLD
+        value: 5.0
+      - key: DUMP_THRESHOLD
+        value: -5.0
+      - key: BREAKOUT_THRESHOLD
+        value: 3.0
+      - key: VOLUME_THRESHOLD
+        value: 50.0
+      - key: SIGNAL_STRENGTH_THRESHOLD
+        value: 70.0
+      - key: WHALE_THRESHOLD
+        value: 15000.0
+      - key: LIQUIDITY_RATIO_THRESHOLD
+        value: 3.0
+      - key: RSI_OVERBOUGHT
+        value: 75.0
+      - key: RSI_OVERSOLD
+        value: 25.0
+      - key: SPREAD_THRESHOLD
+        value: 0.3
+      - key: RANGE_BREAK_THRESHOLD
+        value: 1.2
+      - key: DATABASE_PATH
+        value: ./bot_data.db
+      - key: PORT
+        value: 8080
+      - key: RENDER_SERVICE_NAME
+        value: bybit-scanner-bot
