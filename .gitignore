@@ -1,4 +1,5 @@
 # Environment Variables - NEVER commit real tokens/IDs
+.env
 .env.local
 .env.production
 .env.staging
@@ -81,4 +82,3 @@ api_keys.txt
 # Runtime files
 *.pid
 *.sock
-backup
