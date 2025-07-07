@@ -1,5 +1,4 @@
 # Environment Variables - NEVER commit real tokens/IDs
-.env
 .env.local
 .env.production
 .env.staging
