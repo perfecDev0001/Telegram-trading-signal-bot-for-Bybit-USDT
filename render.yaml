@@ -4,7 +4,7 @@ services:
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: python start_render.py
     envVars:
       # CRITICAL: Set these in Render Dashboard Environment Variables
       # DO NOT put real values here for security reasons

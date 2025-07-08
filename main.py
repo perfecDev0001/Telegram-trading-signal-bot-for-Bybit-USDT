@@ -72,9 +72,29 @@ class BotManager:
         
         if killed > 0:
             print(f"✅ Cleaned up {killed} processes")
-            time.sleep(0.3)  # Minimal delay for process cleanup
+            time.sleep(2)  # Increased delay for process cleanup
         else:
             print("✅ No conflicts found")
+    
+    async def clear_telegram_webhook(self):
+        """Clear any existing Telegram webhook before starting"""
+        try:
+            import telegram
+            
+            print("🔄 Clearing Telegram webhook...")
+            
+            # Create a temporary bot instance to clear webhook
+            bot = telegram.Bot(token=Config.BOT_TOKEN)
+            await bot.delete_webhook(drop_pending_updates=True)
+            
+            print("✅ Telegram webhook cleared")
+            
+            # Small delay to ensure webhook is cleared
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            print(f"⚠️ Could not clear webhook: {e}")
+            print("🔄 Continuing anyway...")
     
     async def start_bot(self):
         """Start the Telegram bot with scheduled health checks"""
@@ -326,6 +346,9 @@ class BotManager:
         # Cleanup first
         self.cleanup_processes()
         
+        # Clear webhook to prevent conflicts
+        await self.clear_telegram_webhook()
+        
         # Set up signal handlers for graceful shutdown
         def signal_handler(signum, frame):
             print(f"\n⚠️ Received signal {signum}, shutting down...")
@@ -339,8 +362,8 @@ class BotManager:
             print("🤖 Starting Telegram Bot...")
             self.bot_task = asyncio.create_task(self.start_bot())
             
-            # Give the bot a moment to initialize
-            await asyncio.sleep(2)
+            # Give the bot more time to initialize and avoid conflicts
+            await asyncio.sleep(5)
             
             # Now start other services
             print("📊 Starting Scanner...")
