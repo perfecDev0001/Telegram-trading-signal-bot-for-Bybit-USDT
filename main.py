@@ -51,7 +51,7 @@ class BotManager:
         try:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 if (proc.info['pid'] != current_pid and 
-                    proc.info['name'] == 'python.exe'):
+                    'python' in proc.info['name'].lower()):
                     python_processes.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
@@ -61,7 +61,7 @@ class BotManager:
             try:
                 if (proc.info['cmdline'] and
                     any(keyword in ' '.join(proc.info['cmdline']).lower() 
-                        for keyword in ['main.py', 'working_bot', 'bot'])):
+                        for keyword in ['main.py', 'telegram_bot', 'bot', 'scanner'])):
                     
                     print(f"  Killing PID {proc.info['pid']}")
                     proc.kill()

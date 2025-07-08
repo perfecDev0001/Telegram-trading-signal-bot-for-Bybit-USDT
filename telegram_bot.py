@@ -17,6 +17,7 @@ from telegram.ext import (
     ConversationHandler, ContextTypes, filters
 )
 from telegram.request import HTTPXRequest
+from telegram.error import Conflict, TelegramError
 
 from config import Config
 from database import db
@@ -77,6 +78,9 @@ class TelegramBot:
         try:
             print("🤖 Initializing bot...")
             
+            # Clear webhooks and handle conflicts
+            await self.resolve_conflicts()
+            
             # Quick bot test with extended timeout
             print("🔍 Testing bot connection...")
             try:
@@ -86,6 +90,16 @@ class TelegramBot:
                     connect_timeout=30
                 )
                 print(f"✅ Bot connection successful: @{bot_info.username}")
+            except Conflict as e:
+                print(f"❌ Bot conflict detected: {e}")
+                print("🔄 Attempting to resolve conflicts...")
+                if await self.resolve_conflicts():
+                    # Retry connection after resolving conflicts
+                    bot_info = await self.bot.get_me()
+                    print(f"✅ Bot connection successful after conflict resolution: @{bot_info.username}")
+                else:
+                    print("❌ Could not resolve bot conflicts")
+                    return False
             except Exception as e:
                 print(f"❌ Bot connection test failed: {e}")
                 print(f"   Error type: {type(e)}")
@@ -99,14 +113,29 @@ class TelegramBot:
             # Initialize the application
             await self.application.initialize()
             
-            # Start the updater
-            await self.application.updater.start_polling(
-                drop_pending_updates=True,
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30,
-                bootstrap_retries=3
-            )
+            # Start the updater with conflict handling
+            try:
+                await self.application.updater.start_polling(
+                    drop_pending_updates=True,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    bootstrap_retries=3
+                )
+            except Conflict as e:
+                print(f"❌ Polling conflict: {e}")
+                print("🔄 Attempting to resolve and retry...")
+                await self.resolve_conflicts()
+                await asyncio.sleep(3)
+                
+                # Retry polling
+                await self.application.updater.start_polling(
+                    drop_pending_updates=True,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    bootstrap_retries=3
+                )
             
             # Start the application
             await self.application.start()
@@ -120,6 +149,23 @@ class TelegramBot:
             print(f"❌ Failed to start bot: {e}")
             import traceback
             traceback.print_exc()
+            return False
+    
+    async def resolve_conflicts(self):
+        """Resolve bot conflicts by clearing webhooks and handling conflicts"""
+        try:
+            print("🔄 Clearing webhooks and resolving conflicts...")
+            
+            # Clear webhooks with drop_pending_updates=True
+            await self.bot.delete_webhook(drop_pending_updates=True)
+            
+            # Wait a moment for Telegram to process
+            await asyncio.sleep(2)
+            
+            print("✅ Webhooks cleared and conflicts resolved")
+            return True
+        except Exception as e:
+            print(f"⚠️ Error resolving conflicts: {e}")
             return False
     
     async def stop_bot(self):
@@ -820,7 +866,7 @@ Choose an option from the menu below:
             ],
             # Row 3b: Test Signal | Export Logs
             [
-                InlineKeyboardButton("🧪 TEST SIGNAL", callback_data="test_signal"),
+                InlineKeyboardButton("🧪 SEND SIGNAL", callback_data="test_signal"),
                 InlineKeyboardButton("📥 EXPORT LOGS", callback_data="export_logs")
             ],
             # Row 3c: API Setup
@@ -2722,7 +2768,7 @@ Click below to toggle filters:"""
     async def test_signal(self, query):
         """Send a test signal to verify delivery using real scan data"""
         try:
-            await query.edit_message_text("🧪 <b>SENDING TEST SIGNAL...</b>\n\n⏳ Generating real signal data...", parse_mode=ParseMode.HTML)
+            await query.edit_message_text("🧪 <b>SENDING SIGNAL...</b>\n\n⏳ Generating real signal data...", parse_mode=ParseMode.HTML)
             
             # Try to get real scan data from the enhanced scanner
             test_signal_data = None
@@ -2855,7 +2901,7 @@ Click below to toggle filters:"""
             volume_str = f"\n💰 Volume: ${test_signal_data['volume']:,.0f}" if test_signal_data.get('volume', 0) > 0 else ""
             
             test_message = f"""
-🧪 <b>TEST SIGNAL</b>
+🧪 <b>SIGNAL STATUS</b>
 
 🔥 #{test_signal_data['symbol']} ({test_signal_data['signal_type']}, x20) 🔥{change_str}
 
@@ -2962,7 +3008,7 @@ Take-Profit:
             
             keyboard = [
                 [InlineKeyboardButton("🔙 BACK TO MAIN MENU", callback_data="back_to_main")],
-                [InlineKeyboardButton("🧪 TEST SIGNAL AGAIN", callback_data="test_signal")]
+                [InlineKeyboardButton("🧪 SEND SIGNAL AGAIN", callback_data="test_signal")]
             ]
             
             await query.edit_message_text(
