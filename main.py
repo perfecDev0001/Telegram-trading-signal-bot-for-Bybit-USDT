@@ -23,6 +23,7 @@ import scheduler_fix
 
 from config import Config
 from telegram_bot import TelegramBot  # Use the original telegram_bot implementation
+from telegram_bot_fix import TelegramBotFix  # Fallback implementation
 from enhanced_scanner import public_api_scanner
 from settings_manager import settings_manager
 from scheduler import market_scheduler
@@ -82,7 +83,49 @@ class BotManager:
             
             # Create the bot instance here to avoid weak reference issues
             if self.telegram_bot is None:
-                self.telegram_bot = TelegramBot()
+                try:
+                    # Try the original implementation first
+                    self.telegram_bot = TelegramBot()
+                    print("✅ Using original TelegramBot implementation")
+                except Exception as e:
+                    print(f"⚠️ Original TelegramBot failed: {e}")
+                    print("🔄 Trying fallback TelegramBotFix implementation...")
+                    try:
+                        # Create a wrapper that mimics the original interface
+                        class TelegramBotWrapper:
+                            def __init__(self, bot_fix):
+                                self.bot_fix = bot_fix
+                                self.bot = bot_fix.bot
+                                self.application = bot_fix.application
+                            
+                            async def start_bot(self):
+                                return await self.bot_fix.start_bot()
+                            
+                            async def stop_bot(self):
+                                return await self.bot_fix.stop_bot()
+                            
+                            def is_running(self):
+                                return self.bot_fix.is_running()
+                            
+                            async def restart_if_needed(self):
+                                return await self.bot_fix.start_bot()
+                            
+                            async def send_scan_result(self, result):
+                                # Basic implementation for sending results
+                                try:
+                                    await self.bot.send_message(
+                                        chat_id=Config.ADMIN_ID,
+                                        text=f"📊 Scan Result: {result}"
+                                    )
+                                except Exception as e:
+                                    print(f"Failed to send scan result: {e}")
+                        
+                        bot_fix = TelegramBotFix()
+                        self.telegram_bot = TelegramBotWrapper(bot_fix)
+                        print("✅ Using fallback TelegramBotFix implementation")
+                    except Exception as e2:
+                        print(f"❌ Both implementations failed: {e2}")
+                        raise
             
             print("🤖 Starting Telegram Bot...")
             

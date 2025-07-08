@@ -48,8 +48,17 @@ class TelegramBot:
                 http_version="1.1"
             )
             
-            # Create application with token, custom request, and disable job queue
-            self.application = Application.builder().token(Config.BOT_TOKEN).request(request).job_queue(None).build()
+            # Create application with token, custom request, and proper updater for version 21.9
+            builder = Application.builder()
+            builder.token(Config.BOT_TOKEN)
+            builder.request(request)
+            
+            # Don't disable updater - we need it for run_polling to work
+            # The 20.8 bug is fixed in version 21.9
+            
+            # Build the application
+            self.application = builder.build()
+            
             # Get the bot instance
             self.bot = self.application.bot
             self.setup_handlers()
@@ -58,6 +67,9 @@ class TelegramBot:
             print("✅ TelegramBot initialized with SSL fix")
         except Exception as e:
             print(f"❌ Error initializing TelegramBot: {e}")
+            # Print more detailed error information
+            import traceback
+            traceback.print_exc()
             raise
     
     async def start_bot(self):
@@ -81,20 +93,23 @@ class TelegramBot:
             
             print("🚀 Starting bot application...")
             
-            # For version 20.x, create and start polling task
+            # For version 21.x, use the proper async initialization
             self._running = True
             
-            # Create a task for run_polling to make it non-blocking
-            self._polling_task = asyncio.create_task(
-                self.application.run_polling(
-                    drop_pending_updates=True,
-                    timeout=60,
-                    read_timeout=30,
-                    write_timeout=30,
-                    connect_timeout=30,
-                    close_loop=False
-                )
+            # Initialize the application
+            await self.application.initialize()
+            
+            # Start the updater
+            await self.application.updater.start_polling(
+                drop_pending_updates=True,
+                read_timeout=30,
+                write_timeout=30,
+                connect_timeout=30,
+                bootstrap_retries=3
             )
+            
+            # Start the application
+            await self.application.start()
             
             print("✅ Bot is running and polling for messages!")
             print(f"🔑 Admin ID: {Config.ADMIN_ID}")
@@ -116,18 +131,15 @@ class TelegramBot:
             print("🛑 Stopping bot...")
             self._running = False
             
-            # Cancel the polling task if it exists
-            if hasattr(self, '_polling_task') and self._polling_task:
-                self._polling_task.cancel()
-                try:
-                    await self._polling_task
-                except asyncio.CancelledError:
-                    pass
+            # Stop the application components in the correct order
+            if hasattr(self.application, 'updater') and self.application.updater:
+                await self.application.updater.stop()
             
-            # Stop the application
             if self.application.running:
                 await self.application.stop()
-                await self.application.shutdown()
+            
+            # Shutdown the application
+            await self.application.shutdown()
             
             print("✅ Bot stopped successfully")
             
@@ -137,9 +149,9 @@ class TelegramBot:
     def is_running(self):
         """Check if bot is running"""
         return (self._running and 
-                hasattr(self, '_polling_task') and 
-                self._polling_task and 
-                not self._polling_task.done())
+                hasattr(self.application, 'updater') and 
+                self.application.updater and 
+                self.application.updater.running)
     
     async def restart_if_needed(self):
         """Restart bot if it's not responsive"""
