@@ -54,6 +54,7 @@ class TelegramBot:
             self.bot = self.application.bot
             self.setup_handlers()
             self._running = False
+            self._polling_task = None
             print("✅ TelegramBot initialized with SSL fix")
         except Exception as e:
             print(f"❌ Error initializing TelegramBot: {e}")
@@ -80,18 +81,21 @@ class TelegramBot:
             
             print("🚀 Starting bot application...")
             
-            # Start the bot
-            await self.application.initialize()
-            await self.application.start()
-            await self.application.updater.start_polling(
-                drop_pending_updates=True,
-                timeout=60,
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30
+            # For version 20.x, create and start polling task
+            self._running = True
+            
+            # Create a task for run_polling to make it non-blocking
+            self._polling_task = asyncio.create_task(
+                self.application.run_polling(
+                    drop_pending_updates=True,
+                    timeout=60,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    close_loop=False
+                )
             )
             
-            self._running = True
             print("✅ Bot is running and polling for messages!")
             print(f"🔑 Admin ID: {Config.ADMIN_ID}")
             print("📱 Send /start to test the bot")
@@ -112,10 +116,19 @@ class TelegramBot:
             print("🛑 Stopping bot...")
             self._running = False
             
-            # Stop polling
-            await self.application.updater.stop()
-            await self.application.stop()
-            await self.application.shutdown()
+            # Cancel the polling task if it exists
+            if hasattr(self, '_polling_task') and self._polling_task:
+                self._polling_task.cancel()
+                try:
+                    await self._polling_task
+                except asyncio.CancelledError:
+                    pass
+            
+            # Stop the application
+            if self.application.running:
+                await self.application.stop()
+                await self.application.shutdown()
+            
             print("✅ Bot stopped successfully")
             
         except Exception as e:
@@ -123,7 +136,10 @@ class TelegramBot:
     
     def is_running(self):
         """Check if bot is running"""
-        return self._running and self.application.running
+        return (self._running and 
+                hasattr(self, '_polling_task') and 
+                self._polling_task and 
+                not self._polling_task.done())
     
     async def restart_if_needed(self):
         """Restart bot if it's not responsive"""
