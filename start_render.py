@@ -32,9 +32,13 @@ def ensure_dependencies():
         print(f"❌ Dependency issue: {e}")
         print("🔄 Attempting to fix dependencies...")
         
-        # Force reinstall
+        # Force reinstall without version conflicts
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", "python-telegram-bot==20.8"], check=True)
+            # First uninstall potentially conflicting packages
+            subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "python-telegram-bot", "httpx"], check=False)
+            
+            # Install the correct version
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "python-telegram-bot==20.8"], check=True)
             print("✅ Dependencies fixed")
             return True
         except subprocess.CalledProcessError:
