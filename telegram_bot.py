@@ -339,11 +339,11 @@ class TelegramBot:
         # Handle settings callbacks that need conversation
         if data.startswith("settings_"):
             if data == "settings_tp_multipliers":
-                return self.handle_tp_multipliers_callback(query, context)
+                return await self.handle_tp_multipliers_callback(query, context)
             else:
-                return self.handle_settings_callback(query, data)
+                return await self.handle_settings_callback(query, data)
         elif data.startswith("threshold_"):
-            return self.handle_threshold_callback(query, data, context)
+            return await self.handle_threshold_callback(query, data, context)
         
         return ConversationHandler.END
     
@@ -1656,7 +1656,7 @@ Choose an option from the menu below:
         except Exception as e:
             await query.edit_message_text(f"❌ Settings error: {e}")
     
-    def handle_threshold_callback(self, query, data, context):
+    async def handle_threshold_callback(self, query, data, context):
         """Handle threshold-related callbacks"""
         try:
             if data == "threshold_pump":
@@ -1665,7 +1665,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('pump_threshold', 5.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"🚀 **SET PUMP THRESHOLD**\n\n"
                     f"Enter new pump threshold percentage (e.g., `5.5`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1682,7 +1682,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('dump_threshold', -5.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"📉 **SET DUMP THRESHOLD**\n\n"
                     f"Enter new dump threshold percentage (e.g., `-6.0`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1698,7 +1698,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('breakout_threshold', 3.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"💥 **SET BREAK THRESHOLD**\n\n"
                     f"Enter new breakout threshold percentage (e.g., `4.0`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1714,7 +1714,7 @@ Choose an option from the menu below:
                 current_value = scanner_status.get('volume_threshold', 50.0)
                 
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"📊 **SET VOLUME THRESHOLD**\n\n"
                     f"Enter new volume threshold percentage (e.g., `50`):\n\n"
                     f"Current value: {current_value}%\n"
@@ -1725,11 +1725,11 @@ Choose an option from the menu below:
                 context.user_data['threshold_type'] = 'volume'
                 return WAITING_THRESHOLD_CHANGE
             else:
-                self.show_threshold_settings(query)
+                await self.show_threshold_settings(query)
         except Exception as e:
-            query.edit_message_text(f"❌ Threshold error: {e}")
+            await query.edit_message_text(f"❌ Threshold error: {e}")
     
-    def handle_tp_multipliers_callback(self, query, context):
+    async def handle_tp_multipliers_callback(self, query, context):
         """Handle TP multipliers callback"""
         try:
             # Get current TP multipliers from database
@@ -1737,7 +1737,7 @@ Choose an option from the menu below:
             tp_multipliers_str = scanner_status.get('tp_multipliers', '[1.5, 3.0, 5.0, 7.5]')
             
             keyboard = [[InlineKeyboardButton("🔙 BACK TO SETTINGS", callback_data="settings")]]
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"🎯 **SET TP MULTIPLIERS**\n\n"
                 f"Enter new TP multipliers as comma-separated values (e.g., `1.5, 3.0, 5.0, 7.5`):\n\n"
                 f"Current values: {tp_multipliers_str}\n"
@@ -1748,7 +1748,7 @@ Choose an option from the menu below:
             context.user_data['waiting_for'] = 'tp_multipliers'
             return WAITING_TP_MULTIPLIERS
         except Exception as e:
-            query.edit_message_text(f"❌ TP multipliers error: {e}")
+            await query.edit_message_text(f"❌ TP multipliers error: {e}")
     
     async def handle_filter_toggle(self, query, data):
         """Handle advanced filter toggle"""
@@ -2713,13 +2713,13 @@ Click below to toggle filters:"""
         
         return ConversationHandler.END
     
-    def handle_settings_callback(self, query, data):
+    async def handle_settings_callback(self, query, data):
         """Handle settings-related callbacks that start conversations"""
         try:
             if data == "settings_add_pair":
                 # Start add pair conversation
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     "➕ **ADD NEW TRADING PAIR**\n\n"
                     "Please send the trading pair symbol (e.g., `BTCUSDT`, `ETHUSDT`):\n\n"
                     "**Format:** Symbol must end with USDT\n"
@@ -2740,7 +2740,7 @@ Click below to toggle filters:"""
                 
                 if not monitored_pairs:
                     keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                    query.edit_message_text(
+                    await query.edit_message_text(
                         "❌ **No Pairs to Remove**\n\nThere are no monitored pairs to remove.",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
@@ -2748,7 +2748,7 @@ Click below to toggle filters:"""
                 
                 pairs_list = '\n'.join([f"• {pair}" for pair in monitored_pairs])
                 keyboard = [[InlineKeyboardButton("🔙 BACK TO PAIRS", callback_data="settings_pairs")]]
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"➖ REMOVE TRADING PAIR\n\n"
                     f"Current monitored pairs:\n{pairs_list}\n\n"
                     f"Please send the trading pair symbol to remove:",
@@ -2758,11 +2758,11 @@ Click below to toggle filters:"""
                 
             else:
                 # Unknown settings callback
-                query.edit_message_text("❌ Unknown settings option")
+                await query.edit_message_text("❌ Unknown settings option")
                 return ConversationHandler.END
                 
         except Exception as e:
-            query.edit_message_text(f"❌ Settings error: {e}")
+            await query.edit_message_text(f"❌ Settings error: {e}")
             return ConversationHandler.END
     
     async def test_signal(self, query):
